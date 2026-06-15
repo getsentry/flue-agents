@@ -19,10 +19,11 @@
 
 ## Key Conventions
 - Cloudflare Worker config lives in `wrangler.jsonc`.
-- Cloudflare-only exports live in root `cloudflare.ts`.
+- Top-level Cloudflare Worker exports live in root `cloudflare.ts`; Flue module-local `cloudflare = extend({ wrap })` descriptors stay beside the owning agent or workflow.
 - Packaged Flue skills live in `skills/<name>/` and are imported by agent modules.
 - Runtime secrets belong in `.env` locally or Wrangler secrets in production; never commit tokens.
 - GitHub issue triage requires `GH_TOKEN` or `GITHUB_TOKEN`.
+- Sentry reporting uses `@sentry/cloudflare` through module-local Flue `cloudflare = extend({ wrap })` exports; keep shared Sentry option handling in `lib/sentry.ts`.
 - When adding agents or workflows, update `README.md` and append matching Durable Object migrations in `wrangler.jsonc`.
 
 ## External References

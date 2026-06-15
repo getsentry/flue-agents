@@ -12,11 +12,13 @@
     "dev": "flue dev --target cloudflare",
     "build": "flue build --target cloudflare",
     "deploy": "pnpm run build && wrangler deploy",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@cloudflare/sandbox": "^0.12.1",
     "@flue/runtime": "^0.11.1",
+    "@sentry/cloudflare": "^10.58.0",
     "agents": "^0.14.1",
     "valibot": "^1.4.1"
   },

@@ -22,6 +22,8 @@ The bounded issue-triage job is exposed as `workflows/issue-triage.ts`.
 
 ## Setup
 
+Use Node.js 22.18 or newer. This matches Flue's current quickstart requirement and the `engines.node` field in `package.json`.
+
 ```bash
 pnpm install
 ```
@@ -37,7 +39,12 @@ npx wrangler whoami
 
 In non-interactive shells, set `CLOUDFLARE_API_TOKEN` instead of using browser login.
 
-This project uses Cloudflare Workers, Durable Object SQLite, Workers AI, and Cloudflare Sandbox containers. Local dev and deployment therefore need a Cloudflare account with Workers and container support enabled.
+This project uses Cloudflare Workers, Durable Object SQLite, Workers AI, and Cloudflare Sandbox containers. Local dev and deployment therefore need a Cloudflare account with these capabilities enabled:
+
+- Workers
+- Durable Objects with SQLite storage
+- Workers AI
+- Containers / Cloudflare Sandbox
 
 ### Environment
 
@@ -47,11 +54,26 @@ Use `.env` for local development:
 cp .env.example .env
 ```
 
-Then set `GH_TOKEN` in `.env`.
+Then set `GH_TOKEN` in `.env`. Set `SENTRY_DSN` only when you want local errors and traces to report to Sentry; an empty DSN disables the SDK for local development.
 
-Cloudflare's current local development tooling supports `.env`. Do not also create `.dev.vars` unless you intentionally want Wrangler's `.dev.vars` behavior; when `.dev.vars` exists, it can take precedence over `.env` for Worker runtime variables.
+Cloudflare's current local development tooling supports `.env`. Do not also create `.dev.vars` unless you intentionally want Wrangler's `.dev.vars` behavior; when `.dev.vars` exists, `.env` values are not loaded into local Worker bindings.
 
 The default model is `cloudflare/@cf/moonshotai/kimi-k2.6`, using the Cloudflare AI binding configured in `wrangler.jsonc`. Override it by adding `FLUE_TRIAGE_MODEL` to `.env` or as a Wrangler secret.
+
+### Sentry
+
+The Flue Cloudflare target generates Durable Object classes for agents and workflows. This repo uses Flue's module-level `cloudflare = extend({ wrap })` hook to wrap the generated `issue-triage` agent and workflow classes with `Sentry.instrumentDurableObjectWithSentry(...)`.
+
+Configure these variables locally in `.env`:
+
+```env
+SENTRY_DSN=""
+SENTRY_ENVIRONMENT="development"
+SENTRY_RELEASE=""
+SENTRY_TRACES_SAMPLE_RATE="0.1"
+```
+
+`SENTRY_DSN` is the only required value for reporting. `SENTRY_TRACES_SAMPLE_RATE` is clamped from `0` to `1`, defaults to `0.1`, and controls performance trace sampling.
 
 ### GitHub
 
@@ -65,13 +87,25 @@ For the current `issue-triage` workflow, use a GitHub token with access to the t
 
 For organization-owned repositories, make sure the token is authorized for the organization and for every repository the agent should triage.
 
-## Run Locally
+## Test Locally
+
+Run the deterministic checks first:
+
+```bash
+pnpm run test
+pnpm run typecheck
+pnpm run build
+```
+
+`pnpm run build` should discover `1 agent(s): issue-triage` and `1 workflow(s): issue-triage`. It does not require a GitHub token.
+
+Then run the Cloudflare dev server:
 
 ```bash
 pnpm run dev
 ```
 
-The dev server listens on `http://localhost:3583`. Because this project uses Cloudflare Sandbox containers, local dev uses Wrangler's Cloudflare target path and requires valid Cloudflare auth.
+The dev server listens on `http://localhost:3583`. Because this project uses Cloudflare Sandbox containers, local dev uses Wrangler's Cloudflare target path and requires valid Cloudflare auth plus a local `.env` containing `GH_TOKEN`.
 
 Invoke the migrated triage workflow:
 
@@ -85,22 +119,33 @@ Direct agent HTTP is also exposed at `/agents/issue-triage/:id` when the Cloudfl
 
 ## Deploy
 
+Before deploying, confirm the Worker name, Durable Object migrations, AI binding, and Sandbox container image in `wrangler.jsonc`.
+
 Set production secrets with Wrangler:
 
 ```bash
 npx wrangler secret put GH_TOKEN
 npx wrangler secret put FLUE_TRIAGE_MODEL # optional
+npx wrangler secret put SENTRY_DSN # optional, enables Sentry reporting
 ```
 
-Then deploy:
+Set `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE` as Wrangler variables or secrets if you need production-specific Sentry metadata.
+
+Run validation, then deploy:
 
 ```bash
+pnpm run test
+pnpm run typecheck
+pnpm run build
 pnpm run deploy
 ```
+
+`pnpm run deploy` runs the Flue Cloudflare build and then `wrangler deploy`.
 
 ## Validation
 
 ```bash
+pnpm run test
 pnpm run typecheck
 pnpm run build
 ```
@@ -108,9 +153,11 @@ pnpm run build
 Current validation status:
 
 - `pnpm install` completes after pnpm build-script approvals are recorded in `pnpm-workspace.yaml`.
+- `pnpm run test` passes the Sentry option contract tests.
 - `pnpm run typecheck` passes.
 - `pnpm run build` passes and discovers `1 agent(s): issue-triage` and `1 workflow(s): issue-triage`.
 - `pnpm run build` currently emits non-fatal Wrangler log-file noise if the process cannot write under `~/Library/Preferences/.wrangler/logs`; the build still exits successfully and writes `dist/`.
+- Sentry instrumentation typechecks and builds; it is disabled at runtime until `SENTRY_DSN` is configured.
 - `pnpm run dev` requires valid Cloudflare auth and a local `.env` with `GH_TOKEN` before the workflow can be exercised end to end.
 - In this sandbox, live dev testing was not completed because the Flue dev supervisor first hit `EMFILE: too many open files, watch`, and the direct internal dev path then reached Wrangler but failed on expired Cloudflare auth in a non-interactive shell.
 
@@ -178,3 +225,5 @@ Use Flue's root source layout. Do not add `.flue/` or `src/` unless the whole pr
    ```
 
    Check the build output for the discovered agent/workflow count and generated class names before deploying.
+
+8. If the new agent or workflow should report to Sentry, export a module-local `cloudflare = extend({ wrap })` descriptor as shown in `agents/issue-triage.ts` or `workflows/issue-triage.ts`.

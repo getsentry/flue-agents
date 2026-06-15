@@ -1,21 +1,35 @@
+// Owns the bounded issue-triage workflow: it gathers GitHub context, delegates
+// judgment to the triage agent, and keeps Flue's generated Durable Object
+// wrapped with Sentry at the module boundary.
 import type { Sandbox } from "@cloudflare/sandbox";
 import type {
   FlueContext,
   FlueSession,
   WorkflowRouteHandler,
 } from "@flue/runtime";
+import { extend } from "@flue/runtime/cloudflare";
+import * as Sentry from "@sentry/cloudflare";
 import * as v from "valibot";
 
 import issueTriageAgent from "../agents/issue-triage";
+import { getSentryOptions, type SentryEnv } from "../lib/sentry";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
 
-type Env = {
+type Env = SentryEnv & {
   GH_TOKEN?: string;
   GITHUB_TOKEN?: string;
   FLUE_TRIAGE_MODEL?: string;
   Sandbox: DurableObjectNamespace<Sandbox>;
 };
+
+export const cloudflare = extend({
+  wrap: (Final) =>
+    Sentry.instrumentDurableObjectWithSentry(
+      (env: Env) => getSentryOptions(env),
+      Final,
+    ),
+});
 
 const repositorySchema = v.pipe(
   v.string(),
