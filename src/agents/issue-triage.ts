@@ -2,7 +2,7 @@
 // Cloudflare Sandbox provides the workspace, and the module-local extension
 // wraps the generated class with Sentry without changing agent behavior.
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
-import { createAgent, type AgentRouteHandler } from "@flue/runtime";
+import { createAgent } from "@flue/runtime";
 import { cfSandboxToSessionEnv, extend } from "@flue/runtime/cloudflare";
 import * as Sentry from "@sentry/cloudflare";
 
@@ -13,8 +13,6 @@ type Env = SentryEnv & {
   FLUE_TRIAGE_MODEL?: string;
   Sandbox: DurableObjectNamespace<Sandbox>;
 };
-
-export const route: AgentRouteHandler = async (_c, next) => next();
 
 export default createAgent<unknown, Env>(({ id, env }) => ({
   model: env.FLUE_TRIAGE_MODEL ?? "cloudflare/@cf/moonshotai/kimi-k2.6",

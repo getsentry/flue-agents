@@ -2,23 +2,25 @@
 
 Flue agents for Sentry automation, deployed on Cloudflare Workers.
 
-This repo uses Flue's root source layout:
+This repo uses Flue's recommended `src/` source layout:
 
 ```text
-agents/       Addressable agents
-workflows/    Finite operations around agents
-skills/       Packaged Agent Skills imported by agents
-fixtures/     Captured examples and regression inputs
-cloudflare.ts Cloudflare-only Worker exports
+src/
+├─ agents/       Addressable agents
+├─ workflows/    Finite operations around agents
+├─ skills/       Packaged Agent Skills imported by agents
+├─ lib/          Shared implementation helpers
+└─ cloudflare.ts Cloudflare-only Worker exports
+fixtures/        Captured examples and regression inputs
 ```
 
-Do not add `.flue/` or `src/` unless the whole project layout is migrated. Flue discovers only one source directory, in this order: `.flue/`, `src/`, then the project root.
+Do not add `.flue/` or root-level Flue source directories. Flue discovers only one source directory, in this order: `.flue/`, `src/`, then the project root. This repo intentionally uses `src/`.
 
 ## First Agent
 
-`agents/issue-triage.ts` is the first Sentry Flue agent. It imports the migrated `skills/issue-triage` skill and runs in a Cloudflare Sandbox container so it can use `gh`, `git`, and `pnpm` while inspecting GitHub issues and repositories.
+`src/agents/issue-triage.ts` is the first Sentry Flue agent. It imports the migrated `src/skills/issue-triage` skill and runs in a Cloudflare Sandbox container so it can use `gh`, `git`, and `pnpm` while inspecting GitHub issues and repositories.
 
-The bounded issue-triage job is exposed as `workflows/issue-triage.ts`.
+The bounded issue-triage job is exposed as `src/workflows/issue-triage.ts`.
 
 ## Setup
 
@@ -115,7 +117,7 @@ curl "http://localhost:3583/workflows/issue-triage?wait=result" \
   -d '{"repository":"getsentry/sentry-mcp","issueNumber":1059}'
 ```
 
-Direct agent HTTP is also exposed at `/agents/issue-triage/:id` when the Cloudflare dev server is running. Use the workflow endpoint above for issue triage because it performs the bounded read, duplicate search, diagnosis, and deterministic GitHub update sequence.
+Use the workflow endpoint above for issue triage. The `issue-triage` agent is invoked by the workflow so callers cannot bypass the bounded read, duplicate search, diagnosis, and deterministic GitHub update sequence.
 
 ## Deploy
 
@@ -165,12 +167,12 @@ Current validation status:
 
 ## Creating Agents
 
-Use Flue's root source layout. Do not add `.flue/` or `src/` unless the whole project layout is migrated.
+Use Flue's `src/` source layout. Do not add `.flue/` or root-level Flue source directories.
 
-1. Create a root agent module:
+1. Create an agent module:
 
    ```text
-   agents/<agent-name>.ts
+   src/agents/<agent-name>.ts
    ```
 
    Use lower-kebab-case filenames. The filename becomes the Flue agent name.
@@ -188,10 +190,12 @@ Use Flue's root source layout. Do not add `.flue/` or `src/` unless the whole pr
    }));
    ```
 
+   Export `route` only when the agent should accept direct HTTP prompts. For workflow-owned agents like `issue-triage`, omit the route so callers use the bounded workflow entry point.
+
 3. If the agent needs a reusable skill, add:
 
    ```text
-   skills/<skill-name>/SKILL.md
+   src/skills/<skill-name>/SKILL.md
    ```
 
    Then import it from the agent with:
@@ -200,20 +204,20 @@ Use Flue's root source layout. Do not add `.flue/` or `src/` unless the whole pr
    import mySkill from "../skills/<skill-name>/SKILL.md" with { type: "skill" };
    ```
 
-4. If the agent needs a full Linux environment, use the existing Cloudflare Sandbox binding and container pattern from `agents/issue-triage.ts`.
+4. If the agent needs a full Linux environment, use the existing Cloudflare Sandbox binding and container pattern from `src/agents/issue-triage.ts`.
 
 5. If the work is a one-shot job that returns a result, add a workflow:
 
    ```text
-   workflows/<workflow-name>.ts
+   src/workflows/<workflow-name>.ts
    ```
 
    The workflow should import the agent, call `init(agent)`, open a session, and return the result.
 
 6. Append Cloudflare Durable Object migrations in `wrangler.jsonc` for new discovered entries:
 
-   - `agents/foo-bar.ts` -> `FlueFooBarAgent`
-   - `workflows/foo-bar.ts` -> `FlueFooBarWorkflow`
+   - `src/agents/foo-bar.ts` -> `FlueFooBarAgent`
+   - `src/workflows/foo-bar.ts` -> `FlueFooBarWorkflow`
 
    Keep migration history ordered. Do not rewrite migrations that have already been deployed.
 
@@ -226,4 +230,4 @@ Use Flue's root source layout. Do not add `.flue/` or `src/` unless the whole pr
 
    Check the build output for the discovered agent/workflow count and generated class names before deploying.
 
-8. If the new agent or workflow should report to Sentry, export a module-local `cloudflare = extend({ wrap })` descriptor as shown in `agents/issue-triage.ts` or `workflows/issue-triage.ts`.
+8. If the new agent or workflow should report to Sentry, export a module-local `cloudflare = extend({ wrap })` descriptor as shown in `src/agents/issue-triage.ts` or `src/workflows/issue-triage.ts`.

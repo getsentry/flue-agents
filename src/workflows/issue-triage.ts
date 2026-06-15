@@ -11,8 +11,22 @@ import { extend } from "@flue/runtime/cloudflare";
 import * as Sentry from "@sentry/cloudflare";
 import * as v from "valibot";
 
-import issueTriageAgent from "../agents/issue-triage";
-import { getSentryOptions, type SentryEnv } from "../lib/sentry";
+import issueTriageAgent from "../agents/issue-triage.ts";
+import {
+  applyLabels,
+  closeSpamIssue,
+  findDuplicateLabel,
+  githubCommandEnv,
+  hasPuntingCloseLanguage,
+  type IssueContext,
+  isRecord,
+  postComment,
+  repoArg,
+  runGhCommand,
+  shellQuote,
+  withGhBodyFile,
+} from "../lib/issue-triage-github.ts";
+import { getSentryOptions, type SentryEnv } from "../lib/sentry.ts";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
 
@@ -156,37 +170,6 @@ function buildDiagnosisFailure(error: unknown): Diagnosis {
   };
 }
 
-type IssueContext = {
-  issueNumber: number;
-  repository?: string;
-  issue: unknown;
-  labels: unknown;
-  fetchedAt: string;
-};
-
-function shellQuote(value: string) {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function repoArg(repository?: string) {
-  return repository ? ` --repo ${shellQuote(repository)}` : "";
-}
-
-function githubCommandEnv(env: Env) {
-  const token = env.GH_TOKEN ?? env.GITHUB_TOKEN;
-  if (!token) {
-    return {};
-  }
-  return {
-    GH_TOKEN: token,
-    GITHUB_TOKEN: token,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function getIssueState(context: IssueContext) {
   if (!isRecord(context.issue) || typeof context.issue.state !== "string") {
     return null;
@@ -206,38 +189,6 @@ function getIssueBody(context: IssueContext) {
     return "";
   }
   return context.issue.body;
-}
-
-function existingLabels(context: IssueContext) {
-  if (!Array.isArray(context.labels)) {
-    return new Map<string, string>();
-  }
-
-  const labels = new Map<string, string>();
-  for (const label of context.labels) {
-    if (isRecord(label) && typeof label.name === "string") {
-      labels.set(label.name.toLowerCase(), label.name);
-    }
-  }
-  return labels;
-}
-
-function filterExistingLabels(context: IssueContext, labels: string[]) {
-  const available = existingLabels(context);
-  const result = new Map<string, string>();
-
-  for (const label of labels) {
-    const existing = available.get(label.toLowerCase());
-    if (existing) {
-      result.set(existing.toLowerCase(), existing);
-    }
-  }
-
-  return Array.from(result.values());
-}
-
-function findDuplicateLabel(context: IssueContext) {
-  return existingLabels(context).get("duplicate") ?? null;
 }
 
 async function readJsonCommand(
@@ -263,64 +214,6 @@ async function readJsonCommand(
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`${description} returned invalid JSON: ${message}`);
   }
-}
-
-async function runGhCommand(
-  session: FlueSession,
-  commandEnv: Record<string, string>,
-  command: string,
-  description: string,
-) {
-  const result = await session.shell(command, {
-    env: commandEnv,
-    signal: AbortSignal.timeout(60_000),
-  });
-
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `${description} failed: ${result.stderr || result.stdout}`.trim(),
-    );
-  }
-}
-
-async function withGhBodyFile<T>(
-  session: FlueSession,
-  prefix: string,
-  body: string,
-  callback: (path: string) => Promise<T>,
-) {
-  const dir = `/workspace/.tmp/issue-triage-${crypto.randomUUID()}`;
-  const path = `${dir}/${prefix}.md`;
-
-  await session.fs.writeFile(path, body);
-
-  try {
-    return await callback(path);
-  } finally {
-    await session.fs.rm(dir, { recursive: true, force: true });
-  }
-}
-
-async function applyLabels(
-  session: FlueSession,
-  commandEnv: Record<string, string>,
-  context: IssueContext,
-  labels: string[],
-) {
-  const repo = repoArg(context.repository);
-  const applied: string[] = [];
-
-  for (const label of filterExistingLabels(context, labels)) {
-    await runGhCommand(
-      session,
-      commandEnv,
-      `gh issue edit ${context.issueNumber}${repo} --add-label ${shellQuote(label)}`,
-      `Applying label ${label}`,
-    );
-    applied.push(label);
-  }
-
-  return applied;
 }
 
 async function editIssueTitle(
@@ -369,31 +262,6 @@ async function editIssueBody(
   return true;
 }
 
-async function postComment(
-  session: FlueSession,
-  commandEnv: Record<string, string>,
-  context: IssueContext,
-  body?: string,
-) {
-  if (!body?.trim()) {
-    return false;
-  }
-
-  await withGhBodyFile(
-    session,
-    `issue-${context.issueNumber}-comment`,
-    body.trim(),
-    (path) =>
-      runGhCommand(
-        session,
-        commandEnv,
-        `gh issue comment ${context.issueNumber}${repoArg(context.repository)} --body-file ${shellQuote(path)}`,
-        "Posting issue comment",
-      ),
-  );
-  return true;
-}
-
 async function closeDuplicate(
   session: FlueSession,
   commandEnv: Record<string, string>,
@@ -405,6 +273,8 @@ async function closeDuplicate(
     ? await applyLabels(session, commandEnv, context, [duplicateLabel])
     : [];
   const comment = [
+    "Triage bot here.",
+    "",
     `Thanks for the report. This appears to duplicate #${duplicate.number}.`,
     "",
     `Closing this so discussion and updates stay in one place. Please follow #${duplicate.number} for progress.`,
@@ -432,18 +302,6 @@ function shouldCloseAsSpam(diagnosis: Diagnosis) {
   );
 }
 
-function hasPuntingCloseLanguage(comment: string) {
-  return /maintainer can decide whether to .*close/i.test(comment);
-}
-
-function buildSpamCloseComment() {
-  return [
-    "Triage bot here.",
-    "",
-    "This is an automated external promotion rather than a repo bug, docs issue, support request, or feature request, so I'm closing it as invalid for normal repo triage.",
-  ].join("\n");
-}
-
 function buildUnsafeCloseComment(diagnosis: Diagnosis) {
   const lines = [
     "Triage bot here.",
@@ -456,17 +314,6 @@ function buildUnsafeCloseComment(diagnosis: Diagnosis) {
   }
 
   return lines.join("\n");
-}
-
-function selectCloseComment(diagnosis: Diagnosis) {
-  const comment =
-    diagnosis.close_comment?.trim() || diagnosis.triage_comment?.trim();
-
-  if (comment && /\bclos/i.test(comment) && !hasPuntingCloseLanguage(comment)) {
-    return comment;
-  }
-
-  return buildSpamCloseComment();
 }
 
 function selectUnsafeCloseComment(diagnosis: Diagnosis) {
@@ -482,28 +329,6 @@ function selectUnsafeCloseComment(diagnosis: Diagnosis) {
   }
 
   return buildUnsafeCloseComment(diagnosis);
-}
-
-async function closeSpamIssue(
-  session: FlueSession,
-  commandEnv: Record<string, string>,
-  context: IssueContext,
-  diagnosis: Diagnosis,
-) {
-  const commentPosted = await postComment(
-    session,
-    commandEnv,
-    context,
-    selectCloseComment(diagnosis),
-  );
-  await runGhCommand(
-    session,
-    commandEnv,
-    `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote("not planned")}`,
-    "Closing spam issue",
-  );
-
-  return commentPosted;
 }
 
 function buildIssueUpdateComment(
@@ -835,6 +660,22 @@ export async function run({
       issueNumber,
       repository,
     );
+    if (getIssueState(closureContext) === "closed") {
+      return {
+        outcome: "needs_human_review",
+        steps: [
+          { name: "search-duplicates", result: duplicateSearch.status },
+          { name: "close-duplicate", result: "skipped: already closed" },
+        ],
+        duplicate: duplicateSearch.duplicate,
+        labels_applied: [],
+        comment_posted: false,
+        issue_closed: false,
+        needs_human_review: true,
+        summary: "Skipped duplicate closure because the issue is already closed.",
+      };
+    }
+
     const labelsApplied = await closeDuplicate(
       session,
       commandEnv,

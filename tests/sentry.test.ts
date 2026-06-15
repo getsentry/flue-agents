@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getSentryOptions } from "../lib/sentry.ts";
+import { getSentryOptions } from "../src/lib/sentry.ts";
 
 test("disables Sentry when DSN is empty", () => {
   const options = getSentryOptions({ SENTRY_DSN: " " });
