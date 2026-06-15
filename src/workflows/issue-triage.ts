@@ -273,7 +273,7 @@ async function closeDuplicate(
     ? await applyLabels(session, commandEnv, context, [duplicateLabel])
     : [];
   const comment = [
-    "Triage bot here.",
+    "Pierre here.",
     "",
     `Thanks for the report. This appears to duplicate #${duplicate.number}.`,
     "",
@@ -304,7 +304,7 @@ function shouldCloseAsSpam(diagnosis: Diagnosis) {
 
 function buildUnsafeCloseComment(diagnosis: Diagnosis) {
   const lines = [
-    "Triage bot here.",
+    "Pierre here.",
     "",
     "The agent flagged this for spam closure, but the request did not pass the auto-close guardrails, so I left it open for maintainer review.",
   ];
@@ -338,7 +338,7 @@ function buildIssueUpdateComment(
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 3);
-  const lines = ["Triage bot here.", ""];
+  const lines = ["Pierre here.", ""];
 
   switch (diagnosis.rewrite_mode) {
     case "light_cleanup":

@@ -163,7 +163,7 @@ export function hasPuntingCloseLanguage(comment: string) {
 
 function buildSpamCloseComment() {
   return [
-    "Triage bot here.",
+    "Pierre here.",
     "",
     "This is an automated external promotion rather than a repo bug, docs issue, support request, or feature request, so I'm closing it as invalid for normal repo triage.",
   ].join("\n");

@@ -39,10 +39,10 @@
       "labels_to_apply": ["invalid"],
       "should_comment": true,
       "should_update_issue": false,
-      "triage_comment": "Triage bot here.\n\nThis looks like an external registry notification rather than a repo bug, docs issue, or feature request. I\u2019m marking it as not actionable for normal repo triage; a maintainer can decide whether to claim the listing or close it.",
+      "triage_comment": "Pierre here.\n\nThis looks like an external registry notification rather than a repo bug, docs issue, or feature request. I\u2019m marking it as not actionable for normal repo triage; a maintainer can decide whether to claim the listing or close it.",
       "needs_human_review": false
     },
-    "comment": "Triage bot here.\n\nThis looks like an external registry notification rather than a repo bug, docs issue, or feature request. I\u2019m marking it as not actionable for normal repo triage; a maintainer can decide whether to claim the listing or close it.",
+    "comment": "Pierre here.\n\nThis looks like an external registry notification rather than a repo bug, docs issue, or feature request. I\u2019m marking it as not actionable for normal repo triage; a maintainer can decide whether to claim the listing or close it.",
     "problem": "The agent had enough evidence to classify the issue as non-repo promotional automation, but its available schema only let it label/comment. The comment also lacked conviction by deferring closure to a maintainer."
   },
   "expectedTriage": {
