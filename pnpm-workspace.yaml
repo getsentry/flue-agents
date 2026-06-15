@@ -1,0 +1,9 @@
+allowBuilds:
+  '@google/genai': true
+  '@mongodb-js/zstd': true
+  core-js-pure: true
+  esbuild: true
+  node-liblzma: true
+  protobufjs: true
+  sharp: true
+  workerd: true

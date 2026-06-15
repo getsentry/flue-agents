@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.flue-vite/
+.flue-vite.wrangler.jsonc
+.pnpm-store/
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+coverage/
+.DS_Store
