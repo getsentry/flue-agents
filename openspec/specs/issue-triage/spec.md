@@ -18,14 +18,15 @@ The system SHALL expose GitHub issue triage through the `issue-triage` workflow 
 - **AND** all external triage requests must pass through the workflow.
 
 #### Scenario: Missing GitHub App credentials
-- **WHEN** the workflow starts without GitHub App credentials
+- **WHEN** the workflow starts without `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_INSTALLATION_ID`, or `GITHUB_APP_PRIVATE_KEY`
 - **THEN** it fails before reading or mutating GitHub issue state
 - **AND** the failure explains that GitHub App authentication is required.
 
 #### Scenario: GitHub App installation token
-- **WHEN** the workflow starts with GitHub App credentials
+- **WHEN** the workflow starts with `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY`
 - **THEN** it mints a short-lived installation token before running GitHub CLI commands
-- **AND** the GitHub CLI commands use that installation token.
+- **AND** the GitHub CLI commands use that installation token through `GH_TOKEN` and `GITHUB_TOKEN` carrier environment variables
+- **AND** `GH_TOKEN`, `GITHUB_TOKEN`, and `GITHUB_APP_ID` are not accepted as input credential fallbacks.
 
 ### Requirement: Current issue context collection
 The workflow SHALL fetch the current GitHub issue snapshot and repository labels before agent diagnosis and SHALL re-fetch issue state before applying GitHub mutations.
@@ -49,12 +50,13 @@ The workflow SHALL fetch the current GitHub issue snapshot and repository labels
 - **THEN** it uses a freshly fetched issue context for that mutation decision.
 
 ### Requirement: Duplicate search stage
-The agent SHALL run a duplicate-search stage that decides whether the issue is a confirmed duplicate, unique, or uncertain before broader diagnosis.
+The workflow SHALL collect duplicate candidates with authenticated GitHub CLI searches, then the agent SHALL run a duplicate-search stage that decides whether the issue is a confirmed duplicate, unique, or uncertain before broader diagnosis.
 
 #### Scenario: Search duplicate candidates
 - **WHEN** the duplicate-search stage runs
-- **THEN** the agent searches same-repository open and closed issues with specific title terms, distinctive body phrases, errors, stack frames, package names, command names, or API names
-- **AND** each `gh search issues` query uses a limit of 10.
+- **THEN** the workflow searches same-repository open and closed issues with exact title terms and distinctive body phrases
+- **AND** each `gh search issues` query uses the GitHub App installation token and a limit of 10
+- **AND** the agent evaluates only the workflow-provided duplicate candidates.
 
 #### Scenario: Avoid generic duplicate searches
 - **WHEN** the issue content contains only generic technology, stack, or repo terms

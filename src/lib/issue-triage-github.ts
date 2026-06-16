@@ -6,6 +6,14 @@ type TokenEnv = {
   GITHUB_APP_PRIVATE_KEY?: string;
 };
 
+declare const githubCommandEnvBrand: unique symbol;
+
+export type GithubCommandEnv = Record<string, string> & {
+  readonly GH_TOKEN: string;
+  readonly GITHUB_TOKEN: string;
+  readonly [githubCommandEnvBrand]: true;
+};
+
 export type IssueContext = {
   issueNumber: number;
   repository?: string;
@@ -217,7 +225,7 @@ export async function resolveGithubCommandEnv(env: TokenEnv, repository?: string
   return {
     GH_TOKEN: token,
     GITHUB_TOKEN: token,
-  };
+  } as GithubCommandEnv;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -258,7 +266,7 @@ export function findDuplicateLabel(context: IssueContext) {
 
 export async function runGhCommand(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   command: string,
   description: string,
 ) {
@@ -295,7 +303,7 @@ export async function withGhBodyFile<T>(
 
 export async function applyLabels(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   context: IssueContext,
   labels: string[],
 ) {
@@ -317,7 +325,7 @@ export async function applyLabels(
 
 export async function postComment(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   context: IssueContext,
   body?: string,
 ) {
@@ -365,7 +373,7 @@ function selectCloseComment(diagnosis: SpamCloseDiagnosis) {
 
 export async function closeSpamIssue(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   context: IssueContext,
   diagnosis: SpamCloseDiagnosis,
 ) {

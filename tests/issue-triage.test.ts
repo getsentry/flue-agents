@@ -279,6 +279,62 @@ test("rejects personal GitHub tokens as workflow credentials", async () => {
   assert.equal(initCalled, false);
 });
 
+test("rejects GitHub App ID as an issuer fallback", async () => {
+  mockModuleOnce("@flue/runtime/cloudflare", {
+    namedExports: {
+      extend: (descriptor: unknown) => descriptor,
+    },
+  });
+  mockModuleOnce("@sentry/cloudflare", {
+    namedExports: {
+      instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
+        Final,
+    },
+  });
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
+
+  const { run: runIssueTriageWorkflow } = await import(
+    "../src/workflows/issue-triage.ts"
+  );
+  const privateKey = await generateTestGitHubPrivateKey();
+  let initCalled = false;
+
+  await assert.rejects(
+    () =>
+      runIssueTriageWorkflow({
+        init: async () => {
+          initCalled = true;
+          return {
+            session: async () => ({
+              shell: async () => {
+                throw new Error("shell should not be called");
+              },
+            }),
+          };
+        },
+        payload: {
+          issueNumber: 123,
+          repository: "getsentry/example",
+        },
+        env: {
+          GITHUB_APP_ID: "12345",
+          GITHUB_APP_INSTALLATION_ID: "12345",
+          GITHUB_APP_PRIVATE_KEY: privateKey,
+        },
+        log: {
+          warn: () => {},
+        },
+      } as any),
+    /GITHUB_APP_CLIENT_ID and GITHUB_APP_PRIVATE_KEY are required for GitHub App authentication/,
+  );
+  assert.equal(initCalled, false);
+});
+
 test("skips duplicate closure when the issue is already closed at mutation time", async (t) => {
   mockModuleOnce("@flue/runtime/cloudflare", {
     namedExports: {
@@ -337,6 +393,10 @@ test("skips duplicate closure when the issue is already closed at mutation time"
 
       if (command.startsWith("gh label list")) {
         return { exitCode: 0, stdout: JSON.stringify(labels), stderr: "" };
+      }
+
+      if (command.startsWith("gh search issues")) {
+        return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
       }
 
       return { exitCode: 0, stdout: "", stderr: "" };

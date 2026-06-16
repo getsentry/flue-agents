@@ -14,9 +14,10 @@ Inputs:
 - `stage`: `search-duplicates` or `diagnose-and-validate`
 - `issueNumber`, optional `repository`
 - `context`: trusted current issue snapshot plus repository labels
+- `search-duplicates`: also receives `duplicateCandidates` gathered by the workflow
 - `diagnose-and-validate`: also receives `duplicateSearch` and `repositoryContext`
 
-Use `context.issue` and `context.labels` as source of truth. Re-fetch GitHub only for candidate issue details.
+Use `context.issue` and `context.labels` as source of truth. Use `duplicateCandidates` as the only GitHub search result source for duplicate evaluation.
 
 ## Global Rules
 
@@ -45,18 +46,12 @@ Comments are where Pierre can be friendly. They should:
 Goal: determine whether the new issue is a confirmed duplicate.
 
 1. Read the current issue and labels from `context`.
-2. Search likely duplicates with multiple queries:
-   - Search exact or near-exact title terms.
-   - Search distinctive error messages, stack frame names, package names, command names, or API names from the issue body.
-   - Search open and closed issues in the same repository with `gh search issues --repo <repository>`.
-   - Add `--limit 10` to every `gh search issues` command.
+2. Review likely duplicates from `duplicateCandidates`.
    - Exclude the current issue number from candidates.
 3. Keep search terms specific.
-   - Do not search generic language, stack, or repo terms by themselves, such as `typescript`, `javascript`, `python`, `rust`, `language`, `rewrite`, `error`, or `timeout`.
-   - For low-signal rewrite requests like "rewrite in Rust" with body "because Rust is good", search only the exact title and exact distinctive body phrase. Do not fan out to generic terms.
-   - Stop searching once you have enough information to decide `unique` or `uncertain`.
-4. Fetch candidate issue details only when needed to compare substance.
-5. Compare candidates against the current issue.
+   - Treat generic language, stack, or repo terms by themselves, such as `typescript`, `javascript`, `python`, `rust`, `language`, `rewrite`, `error`, or `timeout`, as weak evidence.
+   - For low-signal rewrite requests like "rewrite in Rust" with body "because Rust is good", only exact title or exact distinctive body phrase matches should count.
+4. Compare candidates against the current issue.
 
 A duplicate must be the same underlying bug, request, or docs problem. Broad topic overlap is not enough.
 

@@ -16,6 +16,7 @@ import {
   applyLabels,
   closeSpamIssue,
   findDuplicateLabel,
+  type GithubCommandEnv,
   hasPuntingCloseLanguage,
   resolveGithubCommandEnv,
   type IssueContext,
@@ -98,6 +99,7 @@ const duplicateSearchSchema = v.object({
   rationale: v.string(),
 });
 type DuplicateSearch = v.InferOutput<typeof duplicateSearchSchema>;
+type DuplicateCandidate = v.InferOutput<typeof duplicateCandidateSchema>;
 
 const diagnosisSchema = v.object({
   severity: severitySchema,
@@ -154,6 +156,99 @@ function buildDuplicateSearchFailure(error: unknown): DuplicateSearch {
   };
 }
 
+function getIssueSearchText(context: IssueContext, key: "title" | "body") {
+  if (!isRecord(context.issue) || typeof context.issue[key] !== "string") {
+    return "";
+  }
+  return context.issue[key].trim();
+}
+
+function getQuotedPhrases(value: string) {
+  const phrases = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 12 && line.length <= 120)
+    .filter((line) => /[A-Za-z]/.test(line))
+    .filter((line) => !/^(#|```|>|[-*]\s)/.test(line))
+    .slice(0, 3);
+
+  return phrases.map((phrase) => `"${phrase.replace(/"/g, '\\"')}"`);
+}
+
+function buildDuplicateSearchQueries(context: IssueContext) {
+  const title = getIssueSearchText(context, "title");
+  const body = getIssueSearchText(context, "body");
+  const queries = new Set<string>();
+
+  if (title) {
+    queries.add(`"${title.replace(/"/g, '\\"')}"`);
+  }
+
+  for (const phrase of getQuotedPhrases(body)) {
+    queries.add(phrase);
+  }
+
+  return Array.from(queries).slice(0, 4);
+}
+
+function toDuplicateCandidate(value: unknown, issueNumber: number) {
+  if (!isRecord(value) || typeof value.number !== "number") {
+    return null;
+  }
+
+  if (value.number === issueNumber) {
+    return null;
+  }
+
+  if (
+    typeof value.title !== "string" ||
+    typeof value.url !== "string" ||
+    typeof value.state !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    number: value.number,
+    title: value.title,
+    url: value.url,
+    state: value.state,
+    confidence: "low",
+    reason: "Workflow-owned GitHub search candidate for duplicate comparison.",
+  } satisfies DuplicateCandidate;
+}
+
+async function collectDuplicateCandidates(
+  session: FlueSession,
+  commandEnv: GithubCommandEnv,
+  context: IssueContext,
+) {
+  const repo = repoArg(context.repository);
+  const candidates = new Map<number, DuplicateCandidate>();
+
+  for (const query of buildDuplicateSearchQueries(context)) {
+    const result = await readJsonCommand(
+      session,
+      commandEnv,
+      `gh search issues ${shellQuote(query)}${repo} --state all --limit 10 --json number,title,url,state`,
+      "Searching duplicate issue candidates",
+    );
+
+    if (!Array.isArray(result)) {
+      continue;
+    }
+
+    for (const item of result) {
+      const candidate = toDuplicateCandidate(item, context.issueNumber);
+      if (candidate && !candidates.has(candidate.number)) {
+        candidates.set(candidate.number, candidate);
+      }
+    }
+  }
+
+  return Array.from(candidates.values()).slice(0, 10);
+}
+
 function buildDiagnosisFailure(error: unknown): Diagnosis {
   return {
     severity: "low",
@@ -194,7 +289,7 @@ function getIssueBody(context: IssueContext) {
 
 async function readJsonCommand(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   command: string,
   description: string,
 ) {
@@ -219,7 +314,7 @@ async function readJsonCommand(
 
 async function editIssueTitle(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   context: IssueContext,
   title?: string,
 ) {
@@ -239,7 +334,7 @@ async function editIssueTitle(
 
 async function editIssueBody(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   context: IssueContext,
   body?: string,
 ) {
@@ -265,7 +360,7 @@ async function editIssueBody(
 
 async function closeDuplicate(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   context: IssueContext,
   duplicate: v.InferOutput<typeof duplicateCandidateSchema>,
 ) {
@@ -399,7 +494,7 @@ function selectTriageComment(
 
 async function applyTriageUpdate(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   context: IssueContext,
   diagnosis: v.InferOutput<typeof diagnosisSchema>,
 ): Promise<v.InferOutput<typeof updateSchema>> {
@@ -500,7 +595,7 @@ async function applyTriageUpdate(
 
 async function readIssueContext(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   issueNumber: number,
   repository?: string,
 ): Promise<IssueContext> {
@@ -533,7 +628,7 @@ async function readIssueContext(
 
 async function prepareRepository(
   session: FlueSession,
-  commandEnv: Record<string, string>,
+  commandEnv: GithubCommandEnv,
   issueNumber: number,
   repository?: string,
 ) {
@@ -625,12 +720,18 @@ export async function run({
   );
   let duplicateSearch: DuplicateSearch;
   try {
+    const duplicateCandidates = await collectDuplicateCandidates(
+      session,
+      commandEnv,
+      initialContext,
+    );
     const response = await session.skill("issue-triage", {
       args: {
         stage: "search-duplicates",
         issueNumber,
         repository,
         context: initialContext,
+        duplicateCandidates,
       },
       result: duplicateSearchSchema,
       signal: AbortSignal.timeout(300_000),
