@@ -308,7 +308,7 @@ export async function withGhBodyFile<T>(
   try {
     return await callback(path);
   } finally {
-    await session.fs.rm(dir, { recursive: true, force: true });
+    await session.shell(`rm -rf ${shellQuote(dir)}`);
   }
 }
 

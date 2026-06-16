@@ -189,6 +189,12 @@ test("closes external registry spam using the deterministic GitHub update path",
   assert.doesNotMatch(commentBody, /maintainer can decide whether to .*close/i);
   assert.equal(fsOps[0]?.startsWith("mkdir /workspace/.tmp/issue-triage-"), true);
   assert.equal(fsOps[1], `write ${commentPath}`);
+  assert.ok(
+    shellCalls.some(
+      ({ command }) =>
+        command.startsWith("rm -rf '/workspace/.tmp/issue-triage-"),
+    ),
+  );
 });
 
 test("closes invalid low-signal rewrite requests as not planned", async (t) => {

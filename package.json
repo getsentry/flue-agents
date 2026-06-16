@@ -24,7 +24,7 @@
     "@flue/runtime": "^0.11.1",
     "@sentry/cloudflare": "^10.58.0",
     "agents": "^0.14.1",
-    "hono": "4.12.22",
+    "hono": "4.12.25",
     "valibot": "^1.4.1"
   },
   "devDependencies": {
