@@ -76,6 +76,21 @@ The default triage model is `cloudflare/@cf/moonshotai/kimi-k2.6`, using the Clo
 
 Override it with `FLUE_TRIAGE_MODEL` in `.env.local` or as a Wrangler secret.
 
+Issue-triage evals run locally with Flue's Node target, so they use OpenRouter
+instead of the Cloudflare Workers AI binding. `pnpm evals` defaults to
+`openrouter/moonshotai/kimi-k2.6`, which requires `OPENROUTER_API_KEY`.
+
+Configure evals in `.env.local`; the runner loads `.env` first, then
+`.env.local`, with shell variables winning over both:
+
+```env
+FLUE_TRIAGE_EVAL_MODEL="openrouter/moonshotai/kimi-k2.6"
+OPENROUTER_API_KEY=""
+```
+
+Use only `openrouter/...` values for `FLUE_TRIAGE_EVAL_MODEL`; the eval runner
+rejects other providers.
+
 ## Sentry
 
 See [OBSERVABILITY.md](OBSERVABILITY.md) for the Flue Sentry bridge, Cloudflare Worker wrapping, runtime variables, and verification steps.
@@ -99,9 +114,11 @@ Run deterministic checks before opening a PR:
 pnpm run test
 pnpm run typecheck
 pnpm run build
+pnpm evals
 ```
 
 `pnpm run build` does not require GitHub App credentials.
+`pnpm evals` requires the eval model provider key described in [Models](#models).
 
 ## Local Development
 

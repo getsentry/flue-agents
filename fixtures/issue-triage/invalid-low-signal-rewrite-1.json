@@ -1,0 +1,23 @@
+{
+  "description": "Real GitHub issue fixture for a content-free rewrite request that should be closed as invalid low-signal instead of left open for maintainer review.",
+  "source": {
+    "repository": "getsentry/flue-agents",
+    "issueNumber": 1,
+    "capturedAt": "2026-06-16T20:54:27Z",
+    "url": "https://github.com/getsentry/flue-agents/issues/1"
+  },
+  "issue": {
+    "author": "dcramer",
+    "authorAssociation": "MEMBER",
+    "title": "rewrite in python",
+    "labelsAtCapture": ["invalid"],
+    "body": "python is better than javascript"
+  },
+  "expectedTriage": {
+    "labels_include": ["invalid"],
+    "should_update_issue": false,
+    "should_close": true,
+    "close_reason": "not planned",
+    "needs_human_review": false
+  }
+}

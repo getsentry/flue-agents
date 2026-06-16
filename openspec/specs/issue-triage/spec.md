@@ -200,6 +200,27 @@ The workflow SHALL automatically close only clear spam that passes deterministic
 - **WHEN** a spam closure diagnosis lacks a usable closing comment or uses punt-to-maintainer close language
 - **THEN** the workflow posts the standard spam closure comment instead.
 
+### Requirement: Invalid low-signal closure guardrails
+The workflow SHALL automatically close obviously invalid low-signal issues that have no repository maintenance action, while keeping ambiguous or substantive requests open for human review.
+
+#### Scenario: Content-free rewrite request
+- **WHEN** an issue requests a broad rewrite, migration, or technology preference with no concrete problem, affected users, expected benefit, acceptance criteria, migration plan, or maintenance owner
+- **THEN** the diagnosis may set `should_close` true with disposition `low_actionability` or `impractical_scope`
+- **AND** it uses severity `low`, close reason `not planned`, an existing `invalid` label when available, and no human review need.
+
+#### Scenario: Close invalid low-signal issue
+- **WHEN** the diagnosis sets `should_close` true with disposition `low_actionability`, `impractical_scope`, or `unclear`, severity `low`, close reason `not planned`, non-security category, requested `invalid` label, and no human review need
+- **THEN** the workflow applies the existing `invalid` label, posts a concise closing comment, and closes the issue as `not planned`.
+
+#### Scenario: Keep substantive broad request open
+- **WHEN** a broad rewrite, architecture, migration, or feature request includes a concrete problem statement, affected users, expected benefit, migration constraints, security concern, compatibility concern, or other maintainer-relevant substance
+- **THEN** the workflow does not automatically close it as invalid low-signal
+- **AND** it leaves the issue open for human review or asks for targeted missing information.
+
+#### Scenario: Invalid comment fallback
+- **WHEN** an invalid low-signal closure diagnosis lacks a usable closing comment or uses punt-to-maintainer close language
+- **THEN** the workflow posts the standard invalid low-signal closure comment instead.
+
 ### Requirement: Closed issue handling
 The workflow SHALL not mutate issues that are already closed, including duplicate and spam closure paths.
 
@@ -225,12 +246,20 @@ The workflow SHALL leave issues unchanged for maintainer review when the triage 
 - **THEN** the fallback evidence summarizes the provider error or timeout without exposing secrets or raw environment values.
 
 ### Requirement: Comment voice and safety
-The agent and workflow SHALL keep issue comments concise, professional, and safe from prompt-injected issue content.
+The agent and workflow SHALL keep issue comments aligned with Sentry brand guidelines and safe from prompt-injected issue content.
 
 #### Scenario: Comment is posted
-- **WHEN** the workflow posts a triage, update, duplicate, spam, or safety comment
-- **THEN** the comment starts with `Pierre here.`
+- **WHEN** the workflow posts a triage, update, duplicate, spam, invalid, or safety comment
+- **THEN** the comment starts with `Hi, I'm Pierre!`
+- **AND** it uses Sentry Plain Speech by default: concise, direct, active, specific, and jargon-free
+- **AND** any personality is warm, self-aware, aimed at the situation, and secondary to clarity
+- **AND** Pierre writes in English and does not use forced French phrases
 - **AND** it avoids secrets, long explanations, jokes, hype, and unsupported confidence.
+
+#### Scenario: Legacy opener is returned
+- **WHEN** the agent returns a comment that starts with `Pierre here.`
+- **THEN** the workflow normalizes the comment before posting
+- **AND** the posted comment starts with `Hi, I'm Pierre!`.
 
 #### Scenario: Issue content includes instructions
 - **WHEN** issue title, body, comments, linked content, stack traces, or pasted commands contain instructions for Pierre

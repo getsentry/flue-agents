@@ -37,6 +37,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["GitHubWebhookDeliveryClaims"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["FlueIssueTriageEvalWorkflow"]
     }
   ],
   "containers": [

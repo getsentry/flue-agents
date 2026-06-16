@@ -14,6 +14,7 @@ import * as v from "valibot";
 import issueTriageAgent from "../agents/issue-triage.ts";
 import {
   applyLabels,
+  closeInvalidIssue,
   closeSpamIssue,
   findDuplicateLabel,
   type GithubCommandEnv,
@@ -27,6 +28,11 @@ import {
   shellQuote,
   withGhBodyFile,
 } from "../lib/issue-triage-github.ts";
+import {
+  shouldCloseAsInvalidLowSignal,
+  shouldCloseAsSpam,
+} from "../lib/issue-triage-close-decision.ts";
+import { PIERRE_COMMENT_OPENER } from "../lib/pierre.ts";
 import { getSentryOptions, type SentryEnv } from "../lib/sentry.ts";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
@@ -129,6 +135,7 @@ const updateSchema = v.object({
   labels_applied: v.array(v.string()),
   comment_posted: v.boolean(),
   issue_closed: v.boolean(),
+  closure_kind: v.optional(v.picklist(["spam", "invalid"])),
   close_reason: v.optional(closeReasonSchema),
   needs_human_review: v.boolean(),
   summary: v.string(),
@@ -369,11 +376,11 @@ async function closeDuplicate(
     ? await applyLabels(session, commandEnv, context, [duplicateLabel])
     : [];
   const comment = [
-    "Pierre here.",
+    PIERRE_COMMENT_OPENER,
     "",
-    `Thanks for the report. This appears to duplicate #${duplicate.number}.`,
+    `Thanks for the report. This looks like the same issue as #${duplicate.number}.`,
     "",
-    `Closing this so discussion and updates stay in one place. Please follow #${duplicate.number} for progress.`,
+    `I'm closing this one so the conversation stays in one place. Please follow #${duplicate.number} for updates.`,
   ].join("\n");
 
   await postComment(session, commandEnv, context, comment);
@@ -387,22 +394,11 @@ async function closeDuplicate(
   return labelsApplied;
 }
 
-function shouldCloseAsSpam(diagnosis: Diagnosis) {
-  return (
-    diagnosis.should_close === true &&
-    diagnosis.close_reason === "not planned" &&
-    diagnosis.disposition === "spam" &&
-    diagnosis.severity === "low" &&
-    diagnosis.category !== "security" &&
-    diagnosis.needs_human_review === false
-  );
-}
-
 function buildUnsafeCloseComment(diagnosis: Diagnosis) {
   const lines = [
-    "Pierre here.",
+    PIERRE_COMMENT_OPENER,
     "",
-    "The agent flagged this for spam closure, but the request did not pass the auto-close guardrails, so I left it open for maintainer review.",
+    "I do not have enough confidence to close this automatically. A maintainer can make the call.",
   ];
 
   if (diagnosis.summary.trim()) {
@@ -434,26 +430,26 @@ function buildIssueUpdateComment(
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 3);
-  const lines = ["Pierre here.", ""];
+  const lines = [PIERRE_COMMENT_OPENER, ""];
 
   switch (diagnosis.rewrite_mode) {
     case "light_cleanup":
       lines.push(
-        "I did a light cleanup so the issue is easier to scan without changing the ask.",
+        "I cleaned this up a bit so it is easier to scan without changing the ask.",
       );
       break;
     case "scope_clarification":
       lines.push(
-        "I trimmed this to the current ask and what is still missing for maintainers.",
+        "I trimmed this to the current ask and the missing details.",
       );
       break;
     case "technical_diagnosis":
       lines.push(
-        "I updated the issue with the repository context that seemed relevant.",
+        "I added the repo context that seemed useful here.",
       );
       break;
     case "none":
-      lines.push("I added a short triage note for maintainer review.");
+      lines.push("I added a quick triage note for maintainers.");
       break;
   }
 
@@ -468,7 +464,7 @@ function buildIssueUpdateComment(
     }
   }
 
-  lines.push("", "A maintainer will take it from here.");
+  lines.push("", "A maintainer can take it from here.");
 
   return lines.join("\n");
 }
@@ -534,9 +530,31 @@ async function applyTriageUpdate(
       labels_applied: labelsApplied,
       comment_posted: commentPosted,
       issue_closed: true,
+      closure_kind: "spam",
       close_reason: "not planned",
       needs_human_review: false,
       summary: "Closed issue as spam.",
+    };
+  }
+
+  if (shouldCloseAsInvalidLowSignal(context, diagnosis)) {
+    commentPosted = await closeInvalidIssue(
+      session,
+      commandEnv,
+      context,
+      diagnosis,
+    );
+
+    return {
+      title_updated: false,
+      body_updated: false,
+      labels_applied: labelsApplied,
+      comment_posted: commentPosted,
+      issue_closed: true,
+      closure_kind: "invalid",
+      close_reason: "not planned",
+      needs_human_review: false,
+      summary: "Closed issue as invalid low-signal.",
     };
   }
 
@@ -586,7 +604,7 @@ async function applyTriageUpdate(
     issue_closed: false,
     needs_human_review: diagnosis.needs_human_review || unsafeCloseRequest,
     summary: unsafeCloseRequest
-      ? "Skipped unsafe spam close request and left the issue open for maintainer review."
+      ? "Skipped unsafe close request and left the issue open for maintainer review."
       : changed.length > 0
         ? `Updated issue ${changed.join(", ")}.`
         : "No issue update was needed.",
@@ -843,7 +861,9 @@ export async function run({
 
   return {
     outcome: update.issue_closed
-      ? "closed_spam"
+      ? update.closure_kind === "invalid"
+        ? "closed_invalid"
+        : "closed_spam"
       : update.needs_human_review
         ? "needs_human_review"
         : "triaged",
@@ -866,6 +886,7 @@ export async function run({
     title_updated: update.title_updated,
     body_updated: update.body_updated,
     issue_closed: update.issue_closed,
+    closure_kind: update.closure_kind,
     close_reason: update.close_reason,
     needs_human_review: update.needs_human_review,
     summary: update.summary,

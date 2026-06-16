@@ -1,5 +1,10 @@
 import type { FlueSession } from "@flue/runtime";
 
+import {
+  PIERRE_COMMENT_OPENER,
+  PIERRE_LEGACY_COMMENT_OPENER,
+} from "./pierre.ts";
+
 type TokenEnv = {
   GITHUB_APP_CLIENT_ID?: string;
   GITHUB_APP_INSTALLATION_ID?: string;
@@ -26,6 +31,8 @@ type SpamCloseDiagnosis = {
   close_comment?: string;
   triage_comment?: string;
 };
+
+type IssueCloseDiagnosis = SpamCloseDiagnosis;
 
 export function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -264,6 +271,10 @@ export function findDuplicateLabel(context: IssueContext) {
   return existingLabels(context).get("duplicate") ?? null;
 }
 
+export function findInvalidLabel(context: IssueContext) {
+  return existingLabels(context).get("invalid") ?? null;
+}
+
 export async function runGhCommand(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
@@ -329,14 +340,15 @@ export async function postComment(
   context: IssueContext,
   body?: string,
 ) {
-  if (!body?.trim()) {
+  const comment = normalizePierreComment(body);
+  if (!comment) {
     return false;
   }
 
   await withGhBodyFile(
     session,
     `issue-${context.issueNumber}-comment`,
-    body.trim(),
+    comment,
     (path) =>
       runGhCommand(
         session,
@@ -352,23 +364,46 @@ export function hasPuntingCloseLanguage(comment: string) {
   return /maintainer can decide whether to .*close/i.test(comment);
 }
 
+function normalizePierreComment(body?: string) {
+  const comment = body?.trim();
+  if (!comment) {
+    return "";
+  }
+
+  return comment.replace(
+    new RegExp(`^${PIERRE_LEGACY_COMMENT_OPENER.replace(".", "\\.")}`),
+    PIERRE_COMMENT_OPENER,
+  );
+}
+
 function buildSpamCloseComment() {
   return [
-    "Pierre here.",
+    PIERRE_COMMENT_OPENER,
     "",
-    "This is an automated external promotion rather than a repo bug, docs issue, support request, or feature request, so I'm closing it as invalid for normal repo triage.",
+    "This looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
   ].join("\n");
 }
 
-function selectCloseComment(diagnosis: SpamCloseDiagnosis) {
+function buildInvalidCloseComment() {
+  return [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+  ].join("\n");
+}
+
+function selectCloseComment(
+  diagnosis: IssueCloseDiagnosis,
+  fallback: () => string,
+) {
   const comment =
     diagnosis.close_comment?.trim() || diagnosis.triage_comment?.trim();
 
   if (comment && /\bclos/i.test(comment) && !hasPuntingCloseLanguage(comment)) {
-    return comment;
+    return normalizePierreComment(comment);
   }
 
-  return buildSpamCloseComment();
+  return fallback();
 }
 
 export async function closeSpamIssue(
@@ -381,13 +416,35 @@ export async function closeSpamIssue(
     session,
     commandEnv,
     context,
-    selectCloseComment(diagnosis),
+    selectCloseComment(diagnosis, buildSpamCloseComment),
   );
   await runGhCommand(
     session,
     commandEnv,
     `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote("not planned")}`,
     "Closing spam issue",
+  );
+
+  return commentPosted;
+}
+
+export async function closeInvalidIssue(
+  session: FlueSession,
+  commandEnv: GithubCommandEnv,
+  context: IssueContext,
+  diagnosis: IssueCloseDiagnosis,
+) {
+  const commentPosted = await postComment(
+    session,
+    commandEnv,
+    context,
+    selectCloseComment(diagnosis, buildInvalidCloseComment),
+  );
+  await runGhCommand(
+    session,
+    commandEnv,
+    `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote("not planned")}`,
+    "Closing invalid issue",
   );
 
   return commentPosted;

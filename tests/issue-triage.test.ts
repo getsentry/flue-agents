@@ -41,6 +41,14 @@ async function readSpamFixture() {
   return JSON.parse(await readFile(fixtureUrl, "utf8"));
 }
 
+async function readInvalidLowSignalFixture() {
+  const fixtureUrl = new URL(
+    "../fixtures/issue-triage/invalid-low-signal-rewrite-1.json",
+    import.meta.url,
+  );
+  return JSON.parse(await readFile(fixtureUrl, "utf8"));
+}
+
 function base64FromBytes(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) {
@@ -128,7 +136,7 @@ test("closes external registry spam using the deterministic GitHub update path",
     session,
     commandEnv,
     context,
-    fixture.expectedTriage.labels_to_apply,
+    fixture.expectedTriage.labels_include,
   );
   const commentPosted = await closeSpamIssue(
     session,
@@ -175,11 +183,188 @@ test("closes external registry spam using the deterministic GitHub update path",
         `gh issue comment 1059 --repo 'getsentry/sentry-mcp' --body-file '${commentPath}'`,
     ),
   );
-  assert.match(commentBody, /automated external promotion/);
+  assert.match(commentBody, /automated outside promotion/);
   assert.match(commentBody, /I'm closing it as invalid/);
+  assert.match(commentBody, /^Hi, I'm Pierre!/);
   assert.doesNotMatch(commentBody, /maintainer can decide whether to .*close/i);
   assert.equal(fsOps[0]?.startsWith("mkdir /workspace/.tmp/issue-triage-"), true);
   assert.equal(fsOps[1], `write ${commentPath}`);
+});
+
+test("closes invalid low-signal rewrite requests as not planned", async (t) => {
+  const fixture = await readInvalidLowSignalFixture();
+  mockModuleOnce("@flue/runtime/cloudflare", {
+    namedExports: {
+      extend: (descriptor: unknown) => descriptor,
+    },
+  });
+  mockModuleOnce("@sentry/cloudflare", {
+    namedExports: {
+      instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
+        Final,
+    },
+  });
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
+
+  const { run: runIssueTriageWorkflow } = await import(
+    "../src/workflows/issue-triage.ts"
+  );
+  const shellCalls: ShellCall[] = [];
+  const files = new Map<string, string>();
+  const labels = fixture.issue.labelsAtCapture.map((name: string) => ({
+    name,
+    description: "This doesn't seem right",
+  }));
+  const issue = {
+    title: fixture.issue.title,
+    body: fixture.issue.body,
+    author: { login: fixture.issue.author },
+    labels: [],
+    comments: [],
+    url: fixture.source.url,
+    state: "open",
+    createdAt: "2026-06-16T20:52:38Z",
+    updatedAt: fixture.source.capturedAt,
+  };
+  let skillCallCount = 0;
+  const session = {
+    shell: async (command: string, options?: { env?: Record<string, string> }) => {
+      shellCalls.push({ command, env: options?.env });
+
+      if (command.startsWith("gh issue view 1")) {
+        return { exitCode: 0, stdout: JSON.stringify(issue), stderr: "" };
+      }
+
+      if (command.startsWith("gh label list")) {
+        return { exitCode: 0, stdout: JSON.stringify(labels), stderr: "" };
+      }
+
+      if (command.startsWith("gh search issues")) {
+        return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
+      }
+
+      if (command === "git rev-parse --show-toplevel") {
+        return { exitCode: 1, stdout: "", stderr: "not a git repository" };
+      }
+
+      if (command.startsWith("gh repo clone ")) {
+        return { exitCode: 1, stdout: "", stderr: "clone unavailable" };
+      }
+
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+    fs: {
+      mkdir: async () => {},
+      writeFile: async (path: string, body: string) => {
+        files.set(path, body);
+      },
+      rm: async () => {},
+    },
+    skill: async (_name: string, options: { args?: { stage?: string } }) => {
+      skillCallCount += 1;
+      if (options.args?.stage === "search-duplicates") {
+        return {
+          data: {
+            status: "unique",
+            candidates: [],
+            rationale: "No duplicate candidates matched the exact low-signal ask.",
+          },
+        };
+      }
+
+      return {
+        data: {
+          severity: "low",
+          category: "maintenance",
+          disposition: "impractical_scope",
+          rewrite_mode: "none",
+          validity: "unclear",
+          summary:
+            "The request is a content-free language rewrite preference with no actionable maintenance proposal.",
+          evidence: [
+            "Title asks to rewrite in Python.",
+            "Body only says Python is better than JavaScript.",
+            "No concrete problem, user impact, migration plan, or owner is provided.",
+          ],
+          labels_to_apply: fixture.expectedTriage.labels_include,
+          should_comment: false,
+          should_update_issue: fixture.expectedTriage.should_update_issue,
+          triage_comment:
+            "Pierre here.\n\nI do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
+          should_close: fixture.expectedTriage.should_close,
+          close_reason: fixture.expectedTriage.close_reason,
+          close_comment:
+            "Pierre here.\n\nI do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
+          needs_human_review: fixture.expectedTriage.needs_human_review,
+        },
+      };
+    },
+  } as any;
+  const privateKey = await generateTestGitHubPrivateKey();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    mock.fn(async () => Response.json({ token: "workflow-installation-token" })),
+  );
+
+  const result = await runIssueTriageWorkflow({
+    init: async () => ({
+      session: async () => session,
+    }),
+    payload: {
+      issueNumber: fixture.source.issueNumber,
+      repository: fixture.source.repository,
+    },
+    env: {
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_INSTALLATION_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: privateKey,
+    },
+    log: {
+      warn: () => {},
+    },
+  } as any);
+
+  assert.equal(result.outcome, "closed_invalid");
+  assert.equal(result.issue_closed, true);
+  assert.equal(result.close_reason, "not planned");
+  assert.equal(result.closure_kind, "invalid");
+  assert.equal(result.needs_human_review, false);
+  assert.equal(skillCallCount, 2);
+  assert.ok(
+    shellCalls.some(
+      ({ command }) =>
+        command ===
+        "gh issue edit 1 --repo 'getsentry/flue-agents' --add-label 'invalid'",
+    ),
+  );
+  assert.ok(
+    shellCalls.some(
+      ({ command }) =>
+        command ===
+        "gh issue close 1 --repo 'getsentry/flue-agents' --reason 'not planned'",
+    ),
+  );
+  assert.ok(
+    shellCalls.every(
+      ({ command, env }) =>
+        !command.startsWith("gh ") ||
+        (env?.GH_TOKEN === "workflow-installation-token" &&
+          env?.GITHUB_TOKEN === "workflow-installation-token"),
+    ),
+  );
+
+  const commentBody = Array.from(files.values()).find((body) =>
+    body.includes("concrete repo problem or change"),
+  );
+  assert.ok(commentBody);
+  assert.match(commentBody, /^Hi, I'm Pierre!/);
+  assert.doesNotMatch(commentBody, /^Pierre here\./);
 });
 
 test("mints a GitHub App installation token for gh commands", async (t) => {

@@ -22,6 +22,20 @@ fixtures/        Captured examples and regression inputs
 
 The bounded issue-triage job is exposed as `src/workflows/issue-triage.ts`.
 
+Issue-triage eval fixtures live in `fixtures/issue-triage/`. They exercise the
+real `issue-triage` skill through `src/workflows/issue-triage-eval.ts` and check
+stable decision fields only.
+
+```bash
+pnpm evals
+```
+
+`pnpm evals` defaults to `openrouter/moonshotai/kimi-k2.6`, so set
+`OPENROUTER_API_KEY` in `.env.local` or your shell. The runner loads `.env`
+first, then `.env.local`, with shell variables winning over both. Evals only
+accept `openrouter/...` models; the production `cloudflare/...` model path is
+Cloudflare-target only and is not used for local evals.
+
 ## Quick Start
 
 Use Node.js 22.19 or newer, pnpm 11.1.1, Cloudflare auth, and a GitHub App installed on the repositories you want to triage.

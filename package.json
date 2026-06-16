@@ -14,6 +14,7 @@
     "build:cloudflare": "pnpm run test && pnpm run typecheck && pnpm run build",
     "deploy": "pnpm run build && pnpm run deploy:cloudflare",
     "deploy:cloudflare": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy",
+    "evals": "node scripts/issue-triage-evals.mjs",
     "test": "node --test --experimental-strip-types --experimental-test-module-mocks tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
