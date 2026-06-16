@@ -22,7 +22,7 @@ function parseSampleRate(value: string | undefined) {
  * Builds Cloudflare Sentry options from Worker env, keeping local dev disabled
  * when no DSN is configured and normalizing trace sampling.
  */
-export function getSentryOptions(env: SentryEnv) {
+export function getSentryOptions(env: SentryEnv = {}) {
   const dsn = env.SENTRY_DSN?.trim();
 
   return {
@@ -31,6 +31,7 @@ export function getSentryOptions(env: SentryEnv) {
     environment: env.SENTRY_ENVIRONMENT || undefined,
     release: env.SENTRY_RELEASE || undefined,
     tracesSampleRate: parseSampleRate(env.SENTRY_TRACES_SAMPLE_RATE),
+    enableLogs: Boolean(dsn),
     enableRpcTracePropagation: true,
   };
 }

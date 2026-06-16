@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Node.js 22.18 or newer
+- Node.js 22.19 or newer
 - pnpm 11.1.1
 - Cloudflare account with Workers, Durable Objects with SQLite storage, Workers AI, and Containers / Cloudflare Sandbox enabled
 - GitHub App installed on the repositories issue triage should manage
@@ -18,8 +18,8 @@ pnpm install
 Authenticate Wrangler:
 
 ```bash
-npx wrangler login
-npx wrangler whoami
+pnpm exec wrangler login
+pnpm exec wrangler whoami
 ```
 
 In non-interactive shells, set `CLOUDFLARE_API_TOKEN` instead of using browser login.
@@ -27,16 +27,16 @@ In non-interactive shells, set `CLOUDFLARE_API_TOKEN` instead of using browser l
 Create a local environment file:
 
 ```bash
-cp .env.example .env
+cp .env.example .env.local
 ```
 
-Set the GitHub App credentials in `.env`. The issue triage workflow mints a short-lived installation token and passes it to `gh` inside the Cloudflare Sandbox.
+Set the GitHub App credentials in `.env.local`. The issue triage workflow mints a short-lived installation token and passes it to `gh` inside the Cloudflare Sandbox.
 
-Use `.env` for local Worker bindings. Avoid `.dev.vars` unless you intentionally want Wrangler's `.dev.vars` behavior, which takes precedence over `.env`.
+Use `.env.local` for local Worker bindings. Avoid `.env` and `.dev.vars`; the project scripts disable Wrangler's automatic dot-env loading so local overrides stay explicit, and production uses Wrangler secrets.
 
 ## GitHub App
 
-Create a GitHub App owned by the organization or bot account that should appear as the triage actor. Install it on each target repository.
+Create a GitHub App owned by the organization or bot account that should appear as the triage actor. Install it only on the selected repositories issue triage should manage.
 
 For `issue-triage`, grant these repository permissions:
 
@@ -44,12 +44,23 @@ For `issue-triage`, grant these repository permissions:
 - Contents: read, for repository clone and inspection
 - Issues: read and write, for issue context, labels, comments, edits, and closure
 
+Configure the GitHub App webhook:
+
+- Webhook URL: `https://sentry-flue-agents.getsentry.workers.dev/channels/github/webhook`
+- Content type: `application/json`
+- Secret: a generated secret also stored in `GITHUB_WEBHOOK_SECRET`
+- Events: Issues
+
+The Worker admits only supported issue events. The current automatic event is `issues.opened`; direct workflow invocation is reserved for authorized manual/operator use.
+
 Generate a private key for the app and copy the installed app's installation ID. Configure local development with:
 
 ```env
 GITHUB_APP_CLIENT_ID="Iv1..."
 GITHUB_APP_INSTALLATION_ID="12345678"
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+GITHUB_WEBHOOK_SECRET="..."
+FLUE_HTTP_TOKEN="..."
 ```
 
 `GITHUB_APP_CLIENT_ID` is the JWT issuer. The private key may be pasted as a single quoted value with `\n` escapes.
@@ -63,13 +74,13 @@ Reference:
 
 The default triage model is `cloudflare/@cf/moonshotai/kimi-k2.6`, using the Cloudflare AI binding configured in `wrangler.jsonc`.
 
-Override it with `FLUE_TRIAGE_MODEL` in `.env` or as a Wrangler secret.
+Override it with `FLUE_TRIAGE_MODEL` in `.env.local` or as a Wrangler secret.
 
 ## Sentry
 
-The Flue Cloudflare target generates Durable Object classes for agents and workflows. This repo wraps generated classes with module-local `cloudflare = extend({ wrap })` descriptors and shared options from `src/lib/sentry.ts`.
+See [OBSERVABILITY.md](OBSERVABILITY.md) for the Flue Sentry bridge, Cloudflare Worker wrapping, runtime variables, and verification steps.
 
-Configure these variables locally in `.env`:
+Configure these variables locally in `.env.local`:
 
 ```env
 SENTRY_DSN=""
@@ -100,41 +111,26 @@ Run the Cloudflare dev server:
 pnpm run dev
 ```
 
-The dev server listens on `http://localhost:3583`. Local dev requires Cloudflare auth and a `.env` containing the GitHub App credentials.
+The dev server listens on `http://localhost:3583`. Local dev requires Cloudflare auth and a `.env.local` containing the GitHub App credentials. The `dev` script loads `.env.local` explicitly and disables Wrangler's automatic `.env` loading; `build` and `deploy` ignore dot-env files and use Wrangler production secrets.
 
 Invoke the issue triage workflow:
 
 ```bash
+set -a
+source .env.local
+set +a
+
 curl "http://localhost:3583/workflows/issue-triage?wait=result" \
+  -H "Authorization: Bearer $FLUE_HTTP_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repository":"getsentry/sentry-mcp","issueNumber":1059}'
 ```
 
-Use the workflow endpoint for issue triage. The workflow owns the bounded read, duplicate search, diagnosis, and deterministic GitHub update sequence.
+Use the workflow endpoint for authorized manual issue triage. Production automatic triage enters through the signed GitHub webhook route at `/channels/github/webhook`.
 
 ## Deployment
 
-Confirm the Worker name, Durable Object migrations, AI binding, and Sandbox container image in `wrangler.jsonc`.
-
-Set production secrets:
-
-```bash
-npx wrangler secret put GITHUB_APP_CLIENT_ID
-npx wrangler secret put GITHUB_APP_INSTALLATION_ID
-npx wrangler secret put GITHUB_APP_PRIVATE_KEY
-npx wrangler secret put FLUE_TRIAGE_MODEL # optional
-npx wrangler secret put SENTRY_DSN # optional
-```
-
-Set `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE` as Wrangler variables or secrets when production needs different Sentry metadata.
-
-Deploy:
-
-```bash
-pnpm run deploy
-```
-
-`pnpm run deploy` runs the Flue Cloudflare build and then `wrangler deploy`.
+Production deploys are automated by Cloudflare Workers Builds on pushes to `main`. See [DEPLOYMENT.md](DEPLOYMENT.md) for the Cloudflare dashboard settings, runtime secrets, and manual recovery deploy command.
 
 ## Adding Agents and Workflows
 

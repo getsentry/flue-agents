@@ -24,25 +24,42 @@ The bounded issue-triage job is exposed as `src/workflows/issue-triage.ts`.
 
 ## Quick Start
 
-Use Node.js 22.18 or newer, pnpm 11.1.1, Cloudflare auth, and a GitHub App installed on the repositories you want to triage.
+Use Node.js 22.19 or newer, pnpm 11.1.1, Cloudflare auth, and a GitHub App installed on the repositories you want to triage.
 
 ```bash
 pnpm install
-cp .env.example .env
+cp .env.example .env.local
 ```
 
-Create a GitHub App owned by the organization or bot account that should appear as the triage actor. Install it on each target repository with these repository permissions:
+Create a GitHub App owned by the organization or bot account that should appear as the triage actor.
+
+Configure the app:
 
 - Metadata: read
 - Contents: read
 - Issues: read and write
+- Webhook URL: `https://sentry-flue-agents.getsentry.workers.dev/channels/github/webhook`
+- Webhook content type: `application/json`
+- Webhook secret: generate one with `openssl rand -hex 32`
+- Webhook events: subscribe to **Issues** only
 
-Generate a private key for the app and copy the installed app's installation ID. Set the GitHub App credentials in `.env`, then run the deterministic checks:
+Install the app with **Only select repositories** and choose the repositories this service should triage. Generate a private key, then copy these values into `.env.local`:
 
 ```env
+# GitHub App General tab: use Client ID, not App ID.
 GITHUB_APP_CLIENT_ID="Iv1..."
+
+# GitHub App installation URL: /settings/installations/<this-number>
 GITHUB_APP_INSTALLATION_ID="12345678"
+
+# Downloaded GitHub App private key. Keep \n escapes if pasted on one line.
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+
+# Same value as the GitHub App webhook secret.
+GITHUB_WEBHOOK_SECRET="..."
+
+# Internal token for manual/operator workflow calls.
+FLUE_HTTP_TOKEN="..."
 ```
 
 ```bash
@@ -59,32 +76,27 @@ Then run the Cloudflare dev server:
 pnpm run dev
 ```
 
-The dev server listens on `http://localhost:3583`. Local dev requires Cloudflare auth and a `.env` containing the GitHub App credentials.
+The dev server listens on `http://localhost:3583`. Local dev requires Cloudflare auth and a `.env.local` containing the GitHub App credentials. The `dev` script loads `.env.local` explicitly and disables Wrangler's automatic `.env` loading; `build` and `deploy` ignore dot-env files and use Wrangler production secrets.
 
-Invoke the issue triage workflow:
+Invoke the issue triage workflow manually:
 
 ```bash
+set -a
+source .env.local
+set +a
+
 curl "http://localhost:3583/workflows/issue-triage?wait=result" \
+  -H "Authorization: Bearer $FLUE_HTTP_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repository":"getsentry/sentry-mcp","issueNumber":1059}'
 ```
 
-Use the workflow endpoint above for issue triage. The workflow owns the bounded read, duplicate search, diagnosis, and GitHub update sequence.
+The production GitHub App webhook uses `/channels/github/webhook` through Flue's GitHub channel package and starts workflow runs after signature verification. It currently admits `issues.opened` events only. The workflow endpoint is protected and should be used only for authorized manual/operator runs.
 
 ## Deploy
 
-Set production secrets with Wrangler:
+Merges to `main` deploy automatically through Cloudflare Workers Builds. See [DEPLOYMENT.md](DEPLOYMENT.md) for the Cloudflare dashboard settings and runtime secret setup.
 
-```bash
-npx wrangler secret put GITHUB_APP_CLIENT_ID
-npx wrangler secret put GITHUB_APP_INSTALLATION_ID
-npx wrangler secret put GITHUB_APP_PRIVATE_KEY
-npx wrangler secret put FLUE_TRIAGE_MODEL # optional
-npx wrangler secret put SENTRY_DSN # optional, enables Sentry reporting
-```
+See [OBSERVABILITY.md](OBSERVABILITY.md) for Sentry and Cloudflare logging setup.
 
-```bash
-pnpm run deploy
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for Cloudflare setup, environment variables, validation, and conventions for adding agents and workflows.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and conventions for adding agents and workflows.

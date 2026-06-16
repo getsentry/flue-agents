@@ -24,6 +24,7 @@ test("enables Sentry and forwards metadata when DSN is configured", () => {
   assert.equal(options.environment, "production");
   assert.equal(options.release, "abc123");
   assert.equal(options.tracesSampleRate, 0.25);
+  assert.equal(options.enableLogs, true);
   assert.equal(options.enableRpcTracePropagation, true);
 });
 

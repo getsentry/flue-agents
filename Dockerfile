@@ -12,5 +12,5 @@ RUN apt-get update \
       > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
-    && corepack enable pnpm \
+    && npm install --global pnpm@11.1.1 \
     && rm -rf /var/lib/apt/lists/*

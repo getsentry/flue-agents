@@ -3,11 +3,21 @@
   "name": "sentry-flue-agents",
   "compatibility_date": "2026-04-01",
   "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "destinations": ["sentry-logs"]
+    }
+  },
   "ai": {
     "binding": "AI"
   },
   "durable_objects": {
     "bindings": [
+      {
+        "class_name": "GitHubWebhookDeliveryClaims",
+        "name": "GITHUB_WEBHOOK_DELIVERY_CLAIMS"
+      },
       {
         "class_name": "Sandbox",
         "name": "Sandbox"
@@ -23,6 +33,10 @@
         "FlueIssueTriageWorkflow",
         "Sandbox"
       ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["GitHubWebhookDeliveryClaims"]
     }
   ],
   "containers": [
