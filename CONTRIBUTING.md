@@ -5,7 +5,7 @@
 - Node.js 22.18 or newer
 - pnpm 11.1.1
 - Cloudflare account with Workers, Durable Objects with SQLite storage, Workers AI, and Containers / Cloudflare Sandbox enabled
-- GitHub token for issue triage
+- GitHub App installed on the repositories issue triage should manage
 
 ## Setup
 
@@ -30,19 +30,34 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Set `GH_TOKEN` in `.env`. The issue triage workflow shells out to `gh`, so `GH_TOKEN` or `GITHUB_TOKEN` must be available to the Worker runtime.
+Set the GitHub App credentials in `.env`. The issue triage workflow mints a short-lived installation token and passes it to `gh` inside the Cloudflare Sandbox.
 
 Use `.env` for local Worker bindings. Avoid `.dev.vars` unless you intentionally want Wrangler's `.dev.vars` behavior, which takes precedence over `.env`.
 
-## GitHub Token
+## GitHub App
 
-For `issue-triage`, use a token with access to each target repository:
+Create a GitHub App owned by the organization or bot account that should appear as the triage actor. Install it on each target repository.
+
+For `issue-triage`, grant these repository permissions:
 
 - Metadata: read
 - Contents: read, for repository clone and inspection
 - Issues: read and write, for issue context, labels, comments, edits, and closure
 
-For organization-owned repositories, authorize the token for the organization and target repositories.
+Generate a private key for the app and copy the installed app's installation ID. Configure local development with:
+
+```env
+GITHUB_APP_CLIENT_ID="Iv1..."
+GITHUB_APP_INSTALLATION_ID="12345678"
+GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+```
+
+`GITHUB_APP_CLIENT_ID` is the JWT issuer. The private key may be pasted as a single quoted value with `\n` escapes.
+
+Reference:
+
+- GitHub App JWTs: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app
+- Installation access tokens: https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app
 
 ## Models
 
@@ -75,7 +90,7 @@ pnpm run typecheck
 pnpm run build
 ```
 
-`pnpm run build` does not require a GitHub token.
+`pnpm run build` does not require GitHub App credentials.
 
 ## Local Development
 
@@ -85,7 +100,7 @@ Run the Cloudflare dev server:
 pnpm run dev
 ```
 
-The dev server listens on `http://localhost:3583`. Local dev requires Cloudflare auth and a `.env` containing `GH_TOKEN`.
+The dev server listens on `http://localhost:3583`. Local dev requires Cloudflare auth and a `.env` containing the GitHub App credentials.
 
 Invoke the issue triage workflow:
 
@@ -104,7 +119,9 @@ Confirm the Worker name, Durable Object migrations, AI binding, and Sandbox cont
 Set production secrets:
 
 ```bash
-npx wrangler secret put GH_TOKEN
+npx wrangler secret put GITHUB_APP_CLIENT_ID
+npx wrangler secret put GITHUB_APP_INSTALLATION_ID
+npx wrangler secret put GITHUB_APP_PRIVATE_KEY
 npx wrangler secret put FLUE_TRIAGE_MODEL # optional
 npx wrangler secret put SENTRY_DSN # optional
 ```

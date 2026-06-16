@@ -5,7 +5,7 @@ import test, { mock } from "node:test";
 import {
   applyLabels,
   closeSpamIssue,
-  githubCommandEnv,
+  resolveGithubCommandEnv,
   type IssueContext,
 } from "../src/lib/issue-triage-github.ts";
 
@@ -14,12 +14,63 @@ type ShellCall = {
   env?: Record<string, string>;
 };
 
+function mockModuleOnce(
+  specifier: string,
+  options: Parameters<typeof mock.module>[1],
+) {
+  try {
+    mock.module(specifier, options);
+  } catch (error) {
+    if (
+      !(
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ERR_INVALID_STATE"
+      )
+    ) {
+      throw error;
+    }
+  }
+}
+
 async function readSpamFixture() {
   const fixtureUrl = new URL(
     "../fixtures/issue-triage/external-registry-spam-1059.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8"));
+}
+
+function base64FromBytes(bytes: Uint8Array) {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function pemFromPkcs8(pkcs8: ArrayBuffer) {
+  const base64 = base64FromBytes(new Uint8Array(pkcs8));
+  const lines = base64.match(/.{1,64}/g) ?? [];
+  return [
+    "-----BEGIN PRIVATE KEY-----",
+    ...lines,
+    "-----END PRIVATE KEY-----",
+  ].join("\n");
+}
+
+async function generateTestGitHubPrivateKey() {
+  const key = await crypto.subtle.generateKey(
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      modulusLength: 2048,
+      publicExponent: Uint8Array.of(1, 0, 1),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"],
+  );
+  return pemFromPkcs8(await crypto.subtle.exportKey("pkcs8", key.privateKey));
 }
 
 test("keeps issue triage exposed only through the workflow route", async () => {
@@ -57,10 +108,10 @@ test("closes external registry spam using the deterministic GitHub update path",
       },
     },
   } as any;
-  const commandEnv = githubCommandEnv({
-    GH_TOKEN: "",
-    GITHUB_TOKEN: " fallback-token ",
-  });
+  const commandEnv = {
+    GH_TOKEN: "installation-token",
+    GITHUB_TOKEN: "installation-token",
+  };
   const context: IssueContext = {
     issueNumber: fixture.source.issueNumber,
     repository: fixture.source.repository,
@@ -87,8 +138,8 @@ test("closes external registry spam using the deterministic GitHub update path",
   );
 
   assert.deepEqual(commandEnv, {
-    GH_TOKEN: "fallback-token",
-    GITHUB_TOKEN: "fallback-token",
+    GH_TOKEN: "installation-token",
+    GITHUB_TOKEN: "installation-token",
   });
   assert.deepEqual(labelsApplied, ["invalid"]);
   assert.equal(commentPosted, true);
@@ -110,8 +161,8 @@ test("closes external registry spam using the deterministic GitHub update path",
     shellCalls.every(
       ({ env }) =>
         env === undefined ||
-        (env.GH_TOKEN === "fallback-token" &&
-          env.GITHUB_TOKEN === "fallback-token"),
+        (env.GH_TOKEN === "installation-token" &&
+          env.GITHUB_TOKEN === "installation-token"),
     ),
   );
 
@@ -131,21 +182,121 @@ test("closes external registry spam using the deterministic GitHub update path",
   assert.equal(fsOps[1], `write ${commentPath}`);
 });
 
-test("skips duplicate closure when the issue is already closed at mutation time", async () => {
-  mock.module("@flue/runtime/cloudflare", {
+test("mints a GitHub App installation token for gh commands", async (t) => {
+  const privateKey = await generateTestGitHubPrivateKey();
+  const fetchMock = mock.fn(
+    async (_url: string | URL | Request, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      assert.equal(init?.method, "POST");
+      assert.equal(headers["User-Agent"], "sentry-flue-agents");
+      assert.match(headers.Authorization, /^Bearer /);
+      return Response.json({ token: "installation-token" });
+    },
+  );
+  t.mock.method(globalThis, "fetch", fetchMock as typeof fetch);
+
+  const commandEnv = await resolveGithubCommandEnv(
+    {
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_INSTALLATION_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: privateKey,
+    },
+    "getsentry/example",
+  );
+
+  assert.deepEqual(commandEnv, {
+    GH_TOKEN: "installation-token",
+    GITHUB_TOKEN: "installation-token",
+  });
+  assert.equal(fetchMock.mock.callCount(), 1);
+  assert.equal(
+    fetchMock.mock.calls[0]?.arguments[0],
+    "https://api.github.com/app/installations/12345/access_tokens",
+  );
+  assert.equal(
+    fetchMock.mock.calls[0]?.arguments[1]?.body,
+    JSON.stringify({
+      permissions: {
+        contents: "read",
+        issues: "write",
+      },
+      repositories: ["example"],
+    }),
+  );
+});
+
+test("rejects personal GitHub tokens as workflow credentials", async () => {
+  mockModuleOnce("@flue/runtime/cloudflare", {
     namedExports: {
       extend: (descriptor: unknown) => descriptor,
     },
   });
-  mock.module("@sentry/cloudflare", {
+  mockModuleOnce("@sentry/cloudflare", {
     namedExports: {
       instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
         Final,
     },
   });
-  mock.module(new URL("../src/agents/issue-triage.ts", import.meta.url).href, {
-    defaultExport: {},
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
+
+  const { run: runIssueTriageWorkflow } = await import(
+    "../src/workflows/issue-triage.ts"
+  );
+  let initCalled = false;
+
+  await assert.rejects(
+    () =>
+      runIssueTriageWorkflow({
+        init: async () => {
+          initCalled = true;
+          return {
+            session: async () => ({
+              shell: async () => {
+                throw new Error("shell should not be called");
+              },
+            }),
+          };
+        },
+        payload: {
+          issueNumber: 123,
+          repository: "getsentry/example",
+        },
+        env: {
+          GH_TOKEN: "personal-token",
+          GITHUB_TOKEN: "personal-token",
+        },
+        log: {
+          warn: () => {},
+        },
+      } as any),
+    /GITHUB_APP_INSTALLATION_ID is required for GitHub App authentication/,
+  );
+  assert.equal(initCalled, false);
+});
+
+test("skips duplicate closure when the issue is already closed at mutation time", async (t) => {
+  mockModuleOnce("@flue/runtime/cloudflare", {
+    namedExports: {
+      extend: (descriptor: unknown) => descriptor,
+    },
   });
+  mockModuleOnce("@sentry/cloudflare", {
+    namedExports: {
+      instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
+        Final,
+    },
+  });
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
 
   const { run: runIssueTriageWorkflow } = await import(
     "../src/workflows/issue-triage.ts"
@@ -199,6 +350,13 @@ test("skips duplicate closure when the issue is already closed at mutation time"
       },
     }),
   } as any;
+  const privateKey = await generateTestGitHubPrivateKey();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    mock.fn(async () => Response.json({ token: "workflow-installation-token" })),
+  );
+
   const result = await runIssueTriageWorkflow({
     init: async () => ({
       session: async () => session,
@@ -208,7 +366,9 @@ test("skips duplicate closure when the issue is already closed at mutation time"
       repository: "getsentry/example",
     },
     env: {
-      GH_TOKEN: "test-token",
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_INSTALLATION_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: privateKey,
     },
     log: {
       warn: () => {},
@@ -220,6 +380,14 @@ test("skips duplicate closure when the issue is already closed at mutation time"
   assert.equal(result.comment_posted, false);
   assert.equal(result.needs_human_review, true);
   assert.equal(issueViewCount, 2);
+  assert.ok(
+    shellCalls.every(
+      ({ command, env }) =>
+        !command.startsWith("gh ") ||
+        (env?.GH_TOKEN === "workflow-installation-token" &&
+          env?.GITHUB_TOKEN === "workflow-installation-token"),
+    ),
+  );
   assert.ok(
     shellCalls.every(
       ({ command }) =>

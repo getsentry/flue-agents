@@ -1,8 +1,9 @@
 import type { FlueSession } from "@flue/runtime";
 
 type TokenEnv = {
-  GH_TOKEN?: string;
-  GITHUB_TOKEN?: string;
+  GITHUB_APP_CLIENT_ID?: string;
+  GITHUB_APP_INSTALLATION_ID?: string;
+  GITHUB_APP_PRIVATE_KEY?: string;
 };
 
 export type IssueContext = {
@@ -26,11 +27,193 @@ export function repoArg(repository?: string) {
   return repository ? ` --repo ${shellQuote(repository)}` : "";
 }
 
-export function githubCommandEnv(env: TokenEnv) {
-  const token = env.GH_TOKEN?.trim() || env.GITHUB_TOKEN?.trim();
-  if (!token) {
-    return {};
+function encodeBase64Url(value: string | ArrayBuffer) {
+  const bytes =
+    typeof value === "string"
+      ? new TextEncoder().encode(value)
+      : new Uint8Array(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
   }
+  return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function decodeBase64(value: string) {
+  const binary = atob(value.replace(/\s+/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function encodeDerLength(length: number) {
+  if (length < 0x80) {
+    return Uint8Array.of(length);
+  }
+
+  const bytes: number[] = [];
+  let remaining = length;
+  while (remaining > 0) {
+    bytes.unshift(remaining & 0xff);
+    remaining >>= 8;
+  }
+  return Uint8Array.of(0x80 | bytes.length, ...bytes);
+}
+
+function concatBytes(...arrays: Uint8Array[]) {
+  const output = new Uint8Array(
+    arrays.reduce((sum, array) => sum + array.length, 0),
+  );
+  let offset = 0;
+  for (const array of arrays) {
+    output.set(array, offset);
+    offset += array.length;
+  }
+  return output;
+}
+
+function derSequence(...items: Uint8Array[]) {
+  const body = concatBytes(...items);
+  return concatBytes(Uint8Array.of(0x30), encodeDerLength(body.length), body);
+}
+
+function derInteger(value: number) {
+  return Uint8Array.of(0x02, 0x01, value);
+}
+
+function derOctetString(value: Uint8Array) {
+  return concatBytes(Uint8Array.of(0x04), encodeDerLength(value.length), value);
+}
+
+function normalizeGitHubPrivateKey(privateKey: string) {
+  const pem = privateKey.trim().replace(/\\n/g, "\n");
+  const match = pem.match(
+    /-----BEGIN (RSA )?PRIVATE KEY-----([\s\S]+?)-----END (RSA )?PRIVATE KEY-----/,
+  );
+  if (!match) {
+    throw new Error("GITHUB_APP_PRIVATE_KEY must be a PEM private key.");
+  }
+
+  const der = decodeBase64(match[2]);
+  if (!match[1]) {
+    return der;
+  }
+
+  const rsaEncryptionOid = Uint8Array.of(
+    0x06,
+    0x09,
+    0x2a,
+    0x86,
+    0x48,
+    0x86,
+    0xf7,
+    0x0d,
+    0x01,
+    0x01,
+    0x01,
+  );
+  const algorithm = derSequence(rsaEncryptionOid, Uint8Array.of(0x05, 0x00));
+  return derSequence(derInteger(0), algorithm, derOctetString(der));
+}
+
+async function createGitHubAppJwt(env: TokenEnv) {
+  const issuer = env.GITHUB_APP_CLIENT_ID?.trim();
+  const privateKey = env.GITHUB_APP_PRIVATE_KEY?.trim();
+  if (!issuer || !privateKey) {
+    throw new Error(
+      "GITHUB_APP_CLIENT_ID and GITHUB_APP_PRIVATE_KEY are required for GitHub App authentication.",
+    );
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = encodeBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = encodeBase64Url(
+    JSON.stringify({
+      iat: now - 60,
+      exp: now + 9 * 60,
+      iss: issuer,
+    }),
+  );
+  const data = `${header}.${payload}`;
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    normalizeGitHubPrivateKey(privateKey),
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256",
+    },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    new TextEncoder().encode(data),
+  );
+  return `${data}.${encodeBase64Url(signature)}`;
+}
+
+async function createInstallationToken(env: TokenEnv, repository?: string) {
+  const installationId = env.GITHUB_APP_INSTALLATION_ID?.trim();
+  if (!installationId) {
+    throw new Error(
+      "GITHUB_APP_INSTALLATION_ID is required for GitHub App authentication.",
+    );
+  }
+
+  const jwt = await createGitHubAppJwt(env);
+  const body: {
+    repositories?: string[];
+    permissions: {
+      contents: "read";
+      issues: "write";
+    };
+  } = {
+    permissions: {
+      contents: "read",
+      issues: "write",
+    },
+  };
+
+  if (repository) {
+    body.repositories = [repository.split("/")[1]];
+  }
+
+  const response = await fetch(
+    `https://api.github.com/app/installations/${encodeURIComponent(
+      installationId,
+    )}/access_tokens`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${jwt}`,
+        "Content-Type": "application/json",
+        "User-Agent": "sentry-flue-agents",
+        "X-GitHub-Api-Version": "2026-03-10",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `Creating GitHub App installation token failed: ${response.status} ${response.statusText} ${text}`.trim(),
+    );
+  }
+
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || typeof payload.token !== "string") {
+    throw new Error("Creating GitHub App installation token returned no token.");
+  }
+  return payload.token;
+}
+
+export async function resolveGithubCommandEnv(env: TokenEnv, repository?: string) {
+  const token = await createInstallationToken(env, repository);
   return {
     GH_TOKEN: token,
     GITHUB_TOKEN: token,

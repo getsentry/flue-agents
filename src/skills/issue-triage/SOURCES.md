@@ -24,5 +24,5 @@
 
 ## Open Gaps
 
-- The first implementation does not run an end-to-end dry run against a real issue to confirm GitHub token permissions.
+- The first implementation does not run an end-to-end dry run against a real issue to confirm GitHub App installation permissions.
 - Duplicate detection is agent-assisted and conservative; it may require follow-up tuning after observing real triage outcomes.

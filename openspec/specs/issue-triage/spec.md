@@ -17,10 +17,15 @@ The system SHALL expose GitHub issue triage through the `issue-triage` workflow 
 - **THEN** it does not export a route handler for direct prompt access
 - **AND** all external triage requests must pass through the workflow.
 
-#### Scenario: Missing GitHub token
-- **WHEN** the workflow starts without `GH_TOKEN` or `GITHUB_TOKEN`
+#### Scenario: Missing GitHub App credentials
+- **WHEN** the workflow starts without GitHub App credentials
 - **THEN** it fails before reading or mutating GitHub issue state
-- **AND** the failure explains that a GitHub token is required.
+- **AND** the failure explains that GitHub App authentication is required.
+
+#### Scenario: GitHub App installation token
+- **WHEN** the workflow starts with GitHub App credentials
+- **THEN** it mints a short-lived installation token before running GitHub CLI commands
+- **AND** the GitHub CLI commands use that installation token.
 
 ### Requirement: Current issue context collection
 The workflow SHALL fetch the current GitHub issue snapshot and repository labels before agent diagnosis and SHALL re-fetch issue state before applying GitHub mutations.

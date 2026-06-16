@@ -16,8 +16,8 @@ import {
   applyLabels,
   closeSpamIssue,
   findDuplicateLabel,
-  githubCommandEnv,
   hasPuntingCloseLanguage,
+  resolveGithubCommandEnv,
   type IssueContext,
   isRecord,
   postComment,
@@ -31,8 +31,9 @@ import { getSentryOptions, type SentryEnv } from "../lib/sentry.ts";
 export const route: WorkflowRouteHandler = async (_c, next) => next();
 
 type Env = SentryEnv & {
-  GH_TOKEN?: string;
-  GITHUB_TOKEN?: string;
+  GITHUB_APP_CLIENT_ID?: string;
+  GITHUB_APP_INSTALLATION_ID?: string;
+  GITHUB_APP_PRIVATE_KEY?: string;
   FLUE_TRIAGE_MODEL?: string;
   Sandbox: DurableObjectNamespace<Sandbox>;
 };
@@ -601,7 +602,7 @@ async function prepareRepository(
     remoteUrl: repository,
     headSha: head.exitCode === 0 ? head.stdout.trim() : null,
     checkoutNote:
-      "Cloned the repository with gh repo clone using the GitHub token.",
+      "Cloned the repository with gh repo clone using a GitHub App installation token.",
   };
 }
 
@@ -612,12 +613,7 @@ export async function run({
   log,
 }: FlueContext<unknown, Env>) {
   const { issueNumber, repository } = v.parse(payloadSchema, payload);
-  const commandEnv = githubCommandEnv(env);
-  if (!commandEnv.GH_TOKEN) {
-    throw new Error(
-      "GH_TOKEN or GITHUB_TOKEN is required to triage GitHub issues.",
-    );
-  }
+  const commandEnv = await resolveGithubCommandEnv(env, repository);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(`issue-${issueNumber}`);
 
