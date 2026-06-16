@@ -5,6 +5,8 @@ import test, { mock } from "node:test";
 import {
   applyLabels,
   closeSpamIssue,
+  PIERRE_INVALID_CLOSE_COMMENTS,
+  PIERRE_SPAM_CLOSE_COMMENTS,
   resolveGithubCommandEnv,
   type IssueContext,
 } from "../src/lib/issue-triage-github.ts";
@@ -91,6 +93,25 @@ test("keeps issue triage exposed only through the workflow route", async () => {
 
   assert.doesNotMatch(agentSource, /export\s+const\s+route\b/);
   assert.match(workflowSource, /export\s+const\s+route\b/);
+});
+
+test("defines multiple hardcoded Pierre close comment variants", () => {
+  assert.ok(PIERRE_SPAM_CLOSE_COMMENTS.length >= 5);
+  assert.ok(PIERRE_INVALID_CLOSE_COMMENTS.length >= 5);
+
+  for (const comment of PIERRE_SPAM_CLOSE_COMMENTS) {
+    assert.match(comment, /^Hi, I'm Pierre!/);
+    assert.match(comment, /automated outside promotion/);
+    assert.match(comment, /I'm closing it as invalid/);
+    assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);
+  }
+
+  for (const comment of PIERRE_INVALID_CLOSE_COMMENTS) {
+    assert.match(comment, /^Hi, I'm Pierre!/);
+    assert.match(comment, /concrete repo problem or change/);
+    assert.match(comment, /I'm closing this as invalid/);
+    assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);
+  }
 });
 
 test("closes external registry spam using the deterministic GitHub update path", async () => {
@@ -184,9 +205,9 @@ test("closes external registry spam using the deterministic GitHub update path",
     ),
   );
   assert.match(commentBody, /automated outside promotion/);
-  assert.match(commentBody, /Merci for the note/);
   assert.match(commentBody, /I'm closing it as invalid/);
   assert.match(commentBody, /^Hi, I'm Pierre!/);
+  assert.ok(Array.from(PIERRE_SPAM_CLOSE_COMMENTS).includes(commentBody));
   assert.doesNotMatch(commentBody, /maintainer can decide whether to .*close/i);
   assert.equal(fsOps[0]?.startsWith("mkdir /workspace/.tmp/issue-triage-"), true);
   assert.equal(fsOps[1], `write ${commentPath}`);

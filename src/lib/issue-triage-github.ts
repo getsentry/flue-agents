@@ -433,6 +433,10 @@ export const PIERRE_INVALID_CLOSE_COMMENTS = [
 ] as const;
 
 function selectStaticPierreComment(variants: readonly string[]) {
+  if (variants.length === 0) {
+    throw new Error("At least one Pierre comment variant is required.");
+  }
+
   return variants[Math.floor(Math.random() * variants.length)] ?? variants[0];
 }
 
