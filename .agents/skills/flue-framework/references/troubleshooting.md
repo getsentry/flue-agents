@@ -5,7 +5,10 @@
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | New agent or workflow is not discovered | File is nested, wrong source root exists, or filename is not in discovered root | Check `.flue/`, `src/`, then root. Keep discovered modules flat. |
-| Adding `src/` hides root agents in this repo | Flue stops at first source root | Do not add `src/` here unless migrating the whole repo. |
+| Adding `.flue/` hides `src/` modules in this repo | Flue stops at first source root | Do not add `.flue/` here unless migrating the whole repo. |
+| GitHub channel handler cannot find expected fields | The handler assumed a normalized payload instead of native GitHub webhook fields | Branch on `delivery.name` and read `delivery.payload` using GitHub's own nesting, such as `payload.repository.owner.login` and `payload.issue.number`. |
+| GitHub webhook retries or duplicate dispatches repeat work | The GitHub channel is stateless and does not deduplicate delivery IDs | Claim `delivery.deliveryId` in application storage before dispatch when duplicate admission matters. |
+| GitHub webhook times out before agent work finishes | Handler waited for long-running model or workflow work | Admit durable work quickly and return a `2xx`; GitHub expects a response within ten seconds. |
 | Cloudflare build rejects `db.ts` | Cloudflare target uses Durable Object SQLite automatically | Remove `db.ts`; configure persistence through Durable Objects and migrations. |
 | Cloudflare deploy complains about Durable Object classes | Missing, rewritten, or reordered migrations | Append a new migration with generated class names and `FlueRegistry`; do not edit deployed entries. |
 | Workers AI `cloudflare/...` model fails | Missing `AI` binding or wrong target/provider path | Add Wrangler `ai.binding = "AI"` and build with Cloudflare target. |
@@ -54,5 +57,6 @@ Re-check upstream docs before changing:
 - Flue version, `@flue/runtime`, or `@flue/cli` major/minor behavior.
 - Cloudflare Durable Object migration syntax.
 - Cloudflare Sandbox, Shell, Workers AI, or AI Gateway configuration.
+- Ecosystem channel behavior, especially webhook payloads, delivery timing, and deduplication.
 - Provider registration protocols.
 - SDK route contracts or WebSocket message shapes.

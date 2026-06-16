@@ -12,10 +12,11 @@ The first existing source root wins. Flue does not merge agents, workflows, `app
 
 In this repo:
 
-- Keep discovered modules in the project root layout.
-- Add agents as `agents/<lower-kebab-name>.ts`.
-- Add workflows as `workflows/<lower-kebab-name>.ts`.
-- Add imported application skills under `skills/<name>/`.
+- Keep discovered modules in the `src/` layout.
+- Add agents as `src/agents/<lower-kebab-name>.ts`.
+- Add workflows as `src/workflows/<lower-kebab-name>.ts`.
+- Add imported application skills under `src/skills/<name>/`.
+- Add application-owned channels, when needed, under `src/channels/<name>.ts`.
 - Keep discovered agent and workflow files flat; nested files are supporting code, not discovered modules.
 - Update `README.md` and append Durable Object migrations in `wrangler.jsonc` when adding discovered agents or workflows.
 

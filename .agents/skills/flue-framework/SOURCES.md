@@ -33,14 +33,15 @@
 | `https://flueframework.com/docs/api/errors-reference/` | Official API docs | High | public error categories and stability boundary | Fetched full page. |
 | `https://flueframework.com/docs/cli/*` | Official CLI docs | High | command purposes, options, target support | Fetched overview, init, dev, run, connect, build, logs, add. |
 | `https://flueframework.com/docs/sdk/*` | Official SDK docs | High | client options, agents/workflows/runs/admin/WebSocket/error/event APIs | Fetched overview and linked SDK refs. |
+| `https://flueframework.com/docs/ecosystem/channels/github/` | Official docs | Medium | `@flue/github`, webhook path, native delivery contract, Octokit tool boundary, delivery timing and dedupe guidance | Marked AI-generated awaiting review; Markdown fetched June 16, 2026. |
 | `https://flueframework.com/docs/ecosystem/deploy/cloudflare/` | Official docs | Medium | Cloudflare deployment walkthrough, sandbox strategy, recovery semantics | Some sections repeat target docs; fetched full page. |
 | `https://flueframework.com/docs/ecosystem/sandboxes/cloudflare/` | Official docs | High | Cloudflare Sandbox requirements and fit | Fetched full page. |
 | `https://flueframework.com/docs/ecosystem/sandboxes/cloudflare-shell/` | Official docs | High | Cloudflare Shell requirements and limitations | Fetched full page. |
 | `https://flueframework.com/docs/ecosystem/deploy/node/` and other ecosystem sandbox/deploy pages | Official docs | Medium | breadth check for non-Cloudflare variants and connector categories | Fetched linked pages for coverage. |
-| `README.md` | Local repo | High | root layout, commands, Cloudflare/Sentry/GitHub conventions | Worktree was already modified; used as local convention source only. |
+| `AGENTS.md` and `README.md` | Local repo | High | `src/` layout, commands, Cloudflare/Sentry/GitHub conventions | Worktree was already modified; used as local convention source only. |
 | `package.json` | Local repo | High | pnpm, scripts, dependency versions, Node requirement | Current repo state. |
 | `wrangler.jsonc` | Local repo | High | current Worker config, AI binding, migrations, sandbox container | Current repo state. |
-| `agents/issue-triage.ts`, `workflows/issue-triage.ts`, `cloudflare.ts` | Local repo | High | current Cloudflare Sandbox and Sentry extension patterns | Current repo state. |
+| `src/agents/issue-triage.ts`, `src/workflows/issue-triage.ts`, `src/app.ts`, `src/cloudflare.ts` | Local repo | High | current Cloudflare Sandbox, custom GitHub ingress, and Sentry extension patterns | Current repo state. |
 
 ## Synthesis Decisions
 
@@ -49,9 +50,10 @@
 | Classify as `integration-documentation` | Adopted | User requested synthesis of framework docs for implementation and deployment. |
 | Use `reference-backed-expert` layout | Adopted | Flue docs span multiple optional areas; runtime should load only relevant branches. |
 | Keep `SKILL.md` as router, not encyclopedia | Adopted | Skill-writer authoring and reference architecture rules. |
-| Include repo root-layout guard | Adopted | `README.md`, user-provided AGENTS instructions, Flue project layout docs. |
+| Include repo `src/` layout guard | Adopted | `AGENTS.md`, `README.md`, Flue project layout docs. |
 | Split Cloudflare into its own reference | Adopted | User specifically requested deployment to Cloudflare and repo deploys to Cloudflare. |
 | Include SDK/CLI in one reference | Adopted | Most code changes need only route/client/command lookup, not separate deep references. |
+| Add GitHub channel guidance to routing reference | Adopted | GitHub channel behavior is webhook ingress plus dispatch/tool binding, so it belongs beside app routing and SDK guidance. |
 | Include troubleshooting reference | Adopted | Integration skills require failure/workaround coverage. |
 | Omit full upstream code examples | Adopted | Runtime skill should summarize decisions and avoid becoming copied docs. |
 | Do not add scripts | Rejected | No deterministic transformation or validation beyond existing skill validator is required. |
@@ -68,6 +70,7 @@
 | Failure modes and workarounds | Covered | `references/troubleshooting.md` |
 | Version and migration variance | Partial | Cloudflare SQLite beta boundary, Durable Object migrations, source layout, current repo versions |
 | Cloudflare deployment | Covered | `references/cloudflare-deploy.md` |
+| GitHub channel ingress and tools | Covered | `references/routing-sdk-cli.md`, `references/troubleshooting.md` |
 | Local repo conventions | Covered | `SKILL.md`, all relevant references |
 
 ## Source Adaptation Notes
@@ -75,7 +78,7 @@
 - Source intent: official docs teach Flue concepts, APIs, and deployment paths.
 - Local target behavior: make coding agents produce repo-compatible Flue changes quickly and safely.
 - Fidelity boundary: preserve behavior contracts, source-root discovery order, transport exposure rules, Cloudflare migration rules, and security boundaries.
-- Local replacements: docs default to `src/`; this repo uses root layout, so references call out both upstream default and local rule.
+- Local replacements: docs use source-root wording; this repo's source root is `src/`, so references use `src/...` paths for local additions.
 - Omitted material: full prose, long code walkthroughs, non-Cloudflare deploy recipes beyond summary, and exhaustive SDK/WebSocket type tables.
 - Rights and attribution: no long verbatim docs copied; source URLs retained here for attribution and refresh.
 
@@ -86,6 +89,8 @@ Should trigger:
 - "Why is my Flue agent not discovered?"
 - "Wire a Cloudflare Sandbox into this createAgent."
 - "Expose this Flue workflow over HTTP."
+- "Add a GitHub channel to this Flue app."
+- "Fix a Flue GitHub webhook handler that cannot read issue comments."
 - "Use @flue/runtime to add a tool and structured result."
 - "Fix the wrangler migrations for a new Flue agent."
 
@@ -94,9 +99,10 @@ Should not trigger:
 - "Create an Agent Skill for a non-Flue repo."
 - "Compare LLM providers generally."
 - "Debug a Hono app that does not use Flue."
+- "Handle GitHub webhooks in a non-Flue service."
 - "Explain Cloudflare pricing."
 
-Final description was tuned to include Flue-specific nouns, Cloudflare deployment, and concrete APIs while excluding generic Cloudflare or AI SDK language.
+Final description was tuned to include Flue-specific nouns, ecosystem channels, Cloudflare deployment, and concrete APIs while excluding generic Cloudflare, GitHub, or AI SDK language.
 
 ## Gaps
 
