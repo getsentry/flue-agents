@@ -106,6 +106,7 @@ const duplicateSearchSchema = v.object({
 });
 type DuplicateSearch = v.InferOutput<typeof duplicateSearchSchema>;
 type DuplicateCandidate = v.InferOutput<typeof duplicateCandidateSchema>;
+type WorkflowLog = FlueContext<unknown, Env>["log"];
 
 const diagnosisSchema = v.object({
   severity: severitySchema,
@@ -153,6 +154,14 @@ function summarizeAgentFailure(error: unknown) {
   }
 
   return "The triage agent failed before producing structured output.";
+}
+
+function logInfo(
+  log: WorkflowLog,
+  message: string,
+  attributes: Record<string, unknown>,
+) {
+  log.info?.(message, attributes);
 }
 
 function buildDuplicateSearchFailure(error: unknown): DuplicateSearch {
@@ -234,21 +243,23 @@ async function collectDuplicateCandidates(
   const candidates = new Map<number, DuplicateCandidate>();
 
   for (const query of buildDuplicateSearchQueries(context)) {
-    const result = await readJsonCommand(
-      session,
-      commandEnv,
-      `gh search issues ${shellQuote(query)}${repo} --state all --limit 10 --json number,title,url,state`,
-      "Searching duplicate issue candidates",
-    );
+    for (const state of ["open", "closed"]) {
+      const result = await readJsonCommand(
+        session,
+        commandEnv,
+        `gh search issues ${shellQuote(query)}${repo} --state ${state} --limit 10 --json number,title,url,state`,
+        "Searching duplicate issue candidates",
+      );
 
-    if (!Array.isArray(result)) {
-      continue;
-    }
+      if (!Array.isArray(result)) {
+        continue;
+      }
 
-    for (const item of result) {
-      const candidate = toDuplicateCandidate(item, context.issueNumber);
-      if (candidate && !candidates.has(candidate.number)) {
-        candidates.set(candidate.number, candidate);
+      for (const item of result) {
+        const candidate = toDuplicateCandidate(item, context.issueNumber);
+        if (candidate && !candidates.has(candidate.number)) {
+          candidates.set(candidate.number, candidate);
+        }
       }
     }
   }
@@ -726,6 +737,7 @@ export async function run({
   log,
 }: FlueContext<unknown, Env>) {
   const { issueNumber, repository } = v.parse(payloadSchema, payload);
+  logInfo(log, "[issue-triage] Run accepted", { issueNumber, repository });
   const commandEnv = await resolveGithubCommandEnv(env, repository);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(`issue-${issueNumber}`);
@@ -736,6 +748,11 @@ export async function run({
     issueNumber,
     repository,
   );
+  logInfo(log, "[issue-triage] Issue context loaded", {
+    issueNumber,
+    repository,
+    issueState: getIssueState(initialContext) ?? "unknown",
+  });
   let duplicateSearch: DuplicateSearch;
   try {
     const duplicateCandidates = await collectDuplicateCandidates(
@@ -743,6 +760,11 @@ export async function run({
       commandEnv,
       initialContext,
     );
+    logInfo(log, "[issue-triage] Duplicate candidates collected", {
+      issueNumber,
+      repository,
+      candidateCount: duplicateCandidates.length,
+    });
     const response = await session.skill("issue-triage", {
       args: {
         stage: "search-duplicates",
@@ -755,8 +777,17 @@ export async function run({
       signal: AbortSignal.timeout(300_000),
     });
     duplicateSearch = response.data;
+    logInfo(log, "[issue-triage] Duplicate search completed", {
+      issueNumber,
+      repository,
+      status: duplicateSearch.status,
+      candidateCount: duplicateSearch.candidates.length,
+      duplicateNumber: duplicateSearch.duplicate?.number,
+    });
   } catch (error) {
     log.warn("[issue-triage] Duplicate search failed", {
+      issueNumber,
+      repository,
       error: summarizeAgentFailure(error),
     });
     duplicateSearch = buildDuplicateSearchFailure(error);
@@ -776,6 +807,12 @@ export async function run({
       repository,
     );
     if (getIssueState(closureContext) === "closed") {
+      logInfo(log, "[issue-triage] Duplicate close skipped", {
+        issueNumber,
+        repository,
+        duplicateNumber: duplicateSearch.duplicate.number,
+        reason: "already_closed",
+      });
       return {
         outcome: "needs_human_review",
         steps: [
@@ -797,6 +834,12 @@ export async function run({
       closureContext,
       duplicateSearch.duplicate,
     );
+    logInfo(log, "[issue-triage] Duplicate closed", {
+      issueNumber,
+      repository,
+      duplicateNumber: duplicateSearch.duplicate.number,
+      labelsApplied,
+    });
 
     return {
       outcome: "duplicate_closed",
@@ -817,6 +860,12 @@ export async function run({
     issueNumber,
     repository,
   );
+  logInfo(log, "[issue-triage] Repository context prepared", {
+    issueNumber,
+    repository,
+    checkoutAvailable: repositoryContext.checkoutAvailable,
+    headSha: repositoryContext.headSha,
+  });
 
   const diagnosisContext = await readIssueContext(
     session,
@@ -839,8 +888,21 @@ export async function run({
       signal: AbortSignal.timeout(900_000),
     });
     diagnosis = response.data;
+    logInfo(log, "[issue-triage] Diagnosis completed", {
+      issueNumber,
+      repository,
+      severity: diagnosis.severity,
+      category: diagnosis.category,
+      disposition: diagnosis.disposition,
+      validity: diagnosis.validity,
+      needsHumanReview: diagnosis.needs_human_review,
+      shouldClose: diagnosis.should_close ?? false,
+      shouldUpdateIssue: diagnosis.should_update_issue,
+    });
   } catch (error) {
     log.warn("[issue-triage] Diagnosis failed", {
+      issueNumber,
+      repository,
       error: summarizeAgentFailure(error),
     });
     diagnosis = buildDiagnosisFailure(error);
@@ -858,15 +920,27 @@ export async function run({
     updateContext,
     diagnosis,
   );
+  const outcome = update.issue_closed
+    ? update.closure_kind === "invalid"
+      ? "closed_invalid"
+      : "closed_spam"
+    : update.needs_human_review
+      ? "needs_human_review"
+      : "triaged";
+  logInfo(log, "[issue-triage] Run completed", {
+    issueNumber,
+    repository,
+    outcome,
+    labelsApplied: update.labels_applied,
+    commentPosted: update.comment_posted,
+    issueClosed: update.issue_closed,
+    closureKind: update.closure_kind,
+    closeReason: update.close_reason,
+    needsHumanReview: update.needs_human_review,
+  });
 
   return {
-    outcome: update.issue_closed
-      ? update.closure_kind === "invalid"
-        ? "closed_invalid"
-        : "closed_spam"
-      : update.needs_human_review
-        ? "needs_human_review"
-        : "triaged",
+    outcome,
     steps: [
       { name: "search-duplicates", result: duplicateSearch.status },
       {

@@ -184,6 +184,7 @@ test("closes external registry spam using the deterministic GitHub update path",
     ),
   );
   assert.match(commentBody, /automated outside promotion/);
+  assert.match(commentBody, /Merci for the note/);
   assert.match(commentBody, /I'm closing it as invalid/);
   assert.match(commentBody, /^Hi, I'm Pierre!/);
   assert.doesNotMatch(commentBody, /maintainer can decide whether to .*close/i);
@@ -301,11 +302,11 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
           should_comment: false,
           should_update_issue: fixture.expectedTriage.should_update_issue,
           triage_comment:
-            "Pierre here.\n\nI do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
+            "Pierre here.\n\nMerci for the report. I do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
           should_close: fixture.expectedTriage.should_close,
           close_reason: fixture.expectedTriage.close_reason,
           close_comment:
-            "Pierre here.\n\nI do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
+            "Pierre here.\n\nMerci for the report. I do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
           needs_human_review: fixture.expectedTriage.needs_human_review,
         },
       };
@@ -357,6 +358,27 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
     ),
   );
   assert.ok(
+    shellCalls.some(
+      ({ command }) =>
+        command.startsWith("gh search issues ") &&
+        command.includes(" --state open "),
+    ),
+  );
+  assert.ok(
+    shellCalls.some(
+      ({ command }) =>
+        command.startsWith("gh search issues ") &&
+        command.includes(" --state closed "),
+    ),
+  );
+  assert.ok(
+    shellCalls.every(
+      ({ command }) =>
+        !command.startsWith("gh search issues ") ||
+        !command.includes(" --state all "),
+    ),
+  );
+  assert.ok(
     shellCalls.every(
       ({ command, env }) =>
         !command.startsWith("gh ") ||
@@ -369,6 +391,7 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
     body.includes("concrete repo problem or change"),
   );
   assert.ok(commentBody);
+  assert.match(commentBody, /Merci for the report/);
   assert.match(commentBody, /^Hi, I'm Pierre!/);
   assert.doesNotMatch(commentBody, /^Pierre here\./);
 });

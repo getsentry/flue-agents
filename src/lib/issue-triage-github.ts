@@ -376,20 +376,72 @@ function normalizePierreComment(body?: string) {
   );
 }
 
-function buildSpamCloseComment() {
-  return [
+export const PIERRE_SPAM_CLOSE_COMMENTS = [
+  [
     PIERRE_COMMENT_OPENER,
     "",
-    "This looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
-  ].join("\n");
+    "Merci for the note. This looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "I had a look. This appears to be an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "Merci. This reads as an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "A small note from my side: this looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "Merci for sending this over. This looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+  ].join("\n"),
+] as const;
+
+export const PIERRE_INVALID_CLOSE_COMMENTS = [
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "Merci for the report. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "I had a look. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "Merci. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "A small note from my side: I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+  ].join("\n"),
+  [
+    PIERRE_COMMENT_OPENER,
+    "",
+    "Merci for writing this up. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+  ].join("\n"),
+] as const;
+
+function selectStaticPierreComment(variants: readonly string[]) {
+  return variants[Math.floor(Math.random() * variants.length)] ?? variants[0];
+}
+
+function buildSpamCloseComment() {
+  return selectStaticPierreComment(PIERRE_SPAM_CLOSE_COMMENTS);
 }
 
 function buildInvalidCloseComment() {
-  return [
-    PIERRE_COMMENT_OPENER,
-    "",
-    "I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
-  ].join("\n");
+  return selectStaticPierreComment(PIERRE_INVALID_CLOSE_COMMENTS);
 }
 
 function selectCloseComment(
