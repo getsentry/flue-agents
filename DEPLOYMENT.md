@@ -17,6 +17,10 @@ Build command: pnpm run build:cloudflare
 Deploy command: pnpm run deploy:cloudflare
 ```
 
+The build command should be exactly `pnpm run build:cloudflare`. Workers Builds
+installs dependencies automatically, so do not prefix the command with
+`pnpm install --frozen-lockfile`.
+
 Set these build variables in **Settings > Builds > Build variables and secrets**:
 
 ```text
@@ -24,7 +28,11 @@ NODE_VERSION=22.19.0
 PNPM_VERSION=11.1.1
 ```
 
-Workers Builds installs dependencies before the build command. Do not add these build trigger settings to `wrangler.jsonc`; Cloudflare Workers Builds does not honor Wrangler custom build configuration for this.
+The repository also commits `.node-version` with `22.19.0`, which Workers Builds
+supports for overriding the default Node.js version. Keep the dashboard
+`NODE_VERSION` value and `.node-version` in sync. Do not add these build trigger
+settings to `wrangler.jsonc`; Cloudflare Workers Builds does not honor Wrangler
+custom build configuration for this.
 
 Before the first deploy, create the Cloudflare Workers Observability Logs destination named `sentry-logs` described in [OBSERVABILITY.md](OBSERVABILITY.md). `wrangler.jsonc` references that destination for runtime log export to Sentry.
 
