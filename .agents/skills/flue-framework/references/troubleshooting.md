@@ -23,6 +23,9 @@
 | `harness.shell(...)` does not run Linux commands on Cloudflare Shell | Cloudflare Shell exposes structured code tool, not arbitrary shell | Use Cloudflare Sandbox for full Linux shell. |
 | Persisted conversation exists but files disappeared | Database persistence is separate from sandbox filesystem lifecycle | Use a durable workspace or container-backed sandbox. |
 | Telemetry leaks prompt or result content | Exporter includes unsanitized events | Add a `sanitize(event)` policy and omit sensitive content. |
+| Sentry reports nothing on Cloudflare Durable Object work | Generated agent/workflow class was not wrapped | Add module-local `cloudflare = extend({ wrap })` and call `instrumentDurableObjectWithSentry(...)`. |
+| Top-level webhook or Hono route errors miss Sentry | Only Durable Objects are wrapped | Wrap the authored Worker app with `Sentry.withSentry(...)` when HTTP ingress needs instrumentation. |
+| Sentry incidents duplicate nested tool failures and workflow failures | Exporter reports every nested failed operation | Report terminal workflow `run_end` failures and explicit error logs by default. |
 
 ## Build Diagnostics To Check
 

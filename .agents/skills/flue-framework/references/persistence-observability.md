@@ -69,9 +69,9 @@ Useful event families:
 
 Use event streams for debugging, progress UIs, and telemetry export. Treat event content as sensitive unless sanitized.
 
-## Observability
+## Observability Basics
 
-Flue emits structured events and can export telemetry to OpenTelemetry-compatible systems, including Sentry integrations in Cloudflare code.
+Flue emits structured events through `observe(...)` and can export telemetry to external systems.
 
 Guidelines:
 
@@ -80,7 +80,7 @@ Guidelines:
 - Sanitize event content before exporting prompts, model output, tool arguments, payloads, or results.
 - Export unsanitized content only when the destination is approved for that data.
 
-In this repo, Sentry Durable Object instrumentation belongs in module-local `cloudflare = extend({ wrap })` exports, with shared options in `lib/sentry.ts`.
+For Sentry setup and repo-specific wrapping conventions, read `references/observability-sentry.md`.
 
 ## Errors
 
