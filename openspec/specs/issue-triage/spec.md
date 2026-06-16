@@ -196,9 +196,10 @@ The workflow SHALL automatically close only clear spam that passes deterministic
 - **AND** posts a safe review comment when appropriate
 - **AND** marks the result as needing human review.
 
-#### Scenario: Spam comment fallback
-- **WHEN** a spam closure diagnosis lacks a usable closing comment or uses punt-to-maintainer close language
-- **THEN** the workflow posts the standard spam closure comment instead.
+#### Scenario: Spam closure comment
+- **WHEN** the workflow automatically closes a spam issue
+- **THEN** the workflow posts one predefined Pierre/Sentry-voice comment selected from a static pool of no fewer than five spam variants
+- **AND** the posted comment does not use generated diagnosis prose or punt-to-maintainer close language.
 
 ### Requirement: Invalid low-signal closure guardrails
 The workflow SHALL automatically close obviously invalid low-signal issues that have no repository maintenance action, while keeping ambiguous or substantive requests open for human review.
@@ -217,9 +218,10 @@ The workflow SHALL automatically close obviously invalid low-signal issues that 
 - **THEN** the workflow does not automatically close it as invalid low-signal
 - **AND** it leaves the issue open for human review or asks for targeted missing information.
 
-#### Scenario: Invalid comment fallback
-- **WHEN** an invalid low-signal closure diagnosis lacks a usable closing comment or uses punt-to-maintainer close language
-- **THEN** the workflow posts the standard invalid low-signal closure comment instead.
+#### Scenario: Invalid closure comment
+- **WHEN** the workflow automatically closes an invalid low-signal issue
+- **THEN** the workflow posts one predefined Pierre/Sentry-voice comment selected from a static pool of no fewer than five invalid variants
+- **AND** the posted comment does not use generated diagnosis prose or punt-to-maintainer close language.
 
 ### Requirement: Closed issue handling
 The workflow SHALL not mutate issues that are already closed, including duplicate and spam closure paths.
@@ -252,9 +254,9 @@ The agent and workflow SHALL keep issue comments aligned with Sentry brand guide
 - **WHEN** the workflow posts a triage, update, duplicate, spam, invalid, or safety comment
 - **THEN** the comment starts with `Hi, I'm Pierre!`
 - **AND** it uses Sentry Plain Speech by default: concise, direct, active, specific, and jargon-free
-- **AND** any personality is warm, self-aware, aimed at the situation, and secondary to clarity
-- **AND** Pierre writes in English and does not use forced French phrases
-- **AND** it avoids secrets, long explanations, jokes, hype, and unsupported confidence.
+- **AND** any personality uses earned Sentry Voice: warm, self-aware, lightly cheeky, aimed at the situation, and secondary to clarity
+- **AND** Pierre writes in English with only subtle French flavor, such as `Merci`
+- **AND** it avoids secrets, long explanations, reporter-directed jokes, hype, unsupported confidence, broken English, fake accents, and untranslated French fragments.
 
 #### Scenario: Legacy opener is returned
 - **WHEN** the agent returns a comment that starts with `Pierre here.`

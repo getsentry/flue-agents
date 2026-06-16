@@ -98,18 +98,38 @@ test("keeps issue triage exposed only through the workflow route", async () => {
 test("defines multiple hardcoded Pierre close comment variants", () => {
   assert.ok(PIERRE_SPAM_CLOSE_COMMENTS.length >= 5);
   assert.ok(PIERRE_INVALID_CLOSE_COMMENTS.length >= 5);
+  assert.equal(
+    new Set(PIERRE_SPAM_CLOSE_COMMENTS).size,
+    PIERRE_SPAM_CLOSE_COMMENTS.length,
+  );
+  assert.equal(
+    new Set(PIERRE_INVALID_CLOSE_COMMENTS).size,
+    PIERRE_INVALID_CLOSE_COMMENTS.length,
+  );
 
   for (const comment of PIERRE_SPAM_CLOSE_COMMENTS) {
     assert.match(comment, /^Hi, I'm Pierre!/);
-    assert.match(comment, /automated outside promotion/);
-    assert.match(comment, /I'm closing it as invalid/);
+    assert.match(comment, /promotion|outreach/);
+    assert.match(comment, /I'm closing (it|this) as invalid/);
+    assert.match(comment, /Merci|I took a quick look|I had a look/);
+    assert.match(comment, /wrong turn|bulletin board|somewhere, probably|postcard|sightseeing/);
+    assert.doesNotMatch(comment, /\bPas\b/);
     assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);
   }
 
   for (const comment of PIERRE_INVALID_CLOSE_COMMENTS) {
     assert.match(comment, /^Hi, I'm Pierre!/);
-    assert.match(comment, /concrete repo problem or change/);
+    assert.match(
+      comment,
+      /concrete repo problem|repo change|actionable problem|concrete repo action|concrete problem/,
+    );
     assert.match(comment, /I'm closing this as invalid/);
+    assert.match(comment, /Merci|I took a quick look|I had a look|small note/);
+    assert.match(
+      comment,
+      /vibes in a trench coat|inventing work|too airy|group chat with labels|missing bit/,
+    );
+    assert.doesNotMatch(comment, /\bPas\b/);
     assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);
   }
 });
@@ -204,8 +224,8 @@ test("closes external registry spam using the deterministic GitHub update path",
         `gh issue comment 1059 --repo 'getsentry/sentry-mcp' --body-file '${commentPath}'`,
     ),
   );
-  assert.match(commentBody, /automated outside promotion/);
-  assert.match(commentBody, /I'm closing it as invalid/);
+  assert.match(commentBody, /promotion|outreach/);
+  assert.match(commentBody, /I'm closing (it|this) as invalid/);
   assert.match(commentBody, /^Hi, I'm Pierre!/);
   assert.ok(Array.from(PIERRE_SPAM_CLOSE_COMMENTS).includes(commentBody));
   assert.doesNotMatch(commentBody, /maintainer can decide whether to .*close/i);
@@ -409,11 +429,11 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
   );
 
   const commentBody = Array.from(files.values()).find((body) =>
-    body.includes("concrete repo problem or change"),
+    Array.from(PIERRE_INVALID_CLOSE_COMMENTS).includes(body),
   );
   assert.ok(commentBody);
-  assert.match(commentBody, /Merci for the report/);
   assert.match(commentBody, /^Hi, I'm Pierre!/);
+  assert.ok(Array.from(PIERRE_INVALID_CLOSE_COMMENTS).includes(commentBody));
   assert.doesNotMatch(commentBody, /^Pierre here\./);
 });
 

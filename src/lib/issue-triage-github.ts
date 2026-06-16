@@ -27,12 +27,9 @@ export type IssueContext = {
   fetchedAt: string;
 };
 
-type SpamCloseDiagnosis = {
-  close_comment?: string;
-  triage_comment?: string;
-};
+type SpamCloseDiagnosis = unknown;
 
-type IssueCloseDiagnosis = SpamCloseDiagnosis;
+type IssueCloseDiagnosis = unknown;
 
 export function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -360,10 +357,6 @@ export async function postComment(
   return true;
 }
 
-export function hasPuntingCloseLanguage(comment: string) {
-  return /maintainer can decide whether to .*close/i.test(comment);
-}
-
 function normalizePierreComment(body?: string) {
   const comment = body?.trim();
   if (!comment) {
@@ -376,31 +369,35 @@ function normalizePierreComment(body?: string) {
   );
 }
 
+export function hasPuntingCloseLanguage(comment: string) {
+  return /maintainer can decide whether to .*close/i.test(comment);
+}
+
 export const PIERRE_SPAM_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci for the note. This looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+    "Merci for the note. This looks like outside promotion that took a wrong turn into the issue tracker. No repo work here, so I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. This appears to be an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+    "I took a quick look. This is outside outreach, not a bug, docs problem, or feature request. The issue tracker has enough jobs without becoming a bulletin board, so I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci. This reads as an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+    "Merci. This is outside promotion, which is useful somewhere, probably, but not as a repo issue. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "A small note from my side: this looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+    "I had a look, and this is more postcard than issue: outside promotion, no repo problem, no change to make. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci for sending this over. This looks like an automated outside promotion, not a repo issue we can work on. I'm closing it as invalid so the tracker stays tidy.",
+    "Merci for sending it over. I do not see a repo problem here, just external promotion doing a little sightseeing in the tracker. I'm closing it as invalid.",
   ].join("\n"),
 ] as const;
 
@@ -408,27 +405,27 @@ export const PIERRE_INVALID_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci for the report. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+    "Merci for the report. I need one concrete repo problem before maintainers have something to work on; right now this is mostly vibes in a trench coat. I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+    "I took a quick look. There is no clear bug, maintainer action, or repo change here, so I would mostly be inventing work. I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+    "Merci. This is too airy for the issue tracker: I do not see a concrete repo problem or change for maintainers to act on. I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "A small note from my side: I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+    "A small note from my side: this needs a concrete repo action, or every tracker becomes a group chat with labels. I don't see one here, so I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci for writing this up. I don't see a concrete repo problem or change for maintainers to act on here, so I'm closing this as invalid.",
+    "I had a look. The missing bit is the important bit: a concrete problem maintainers can act on. Without that, I'm closing this as invalid.",
   ].join("\n"),
 ] as const;
 
@@ -448,31 +445,18 @@ function buildInvalidCloseComment() {
   return selectStaticPierreComment(PIERRE_INVALID_CLOSE_COMMENTS);
 }
 
-function selectCloseComment(
-  diagnosis: IssueCloseDiagnosis,
-  fallback: () => string,
-) {
-  const comment =
-    diagnosis.close_comment?.trim() || diagnosis.triage_comment?.trim();
-
-  if (comment && /\bclos/i.test(comment) && !hasPuntingCloseLanguage(comment)) {
-    return normalizePierreComment(comment);
-  }
-
-  return fallback();
-}
-
+/** Closes spam with a static Pierre comment, never generated diagnosis prose. */
 export async function closeSpamIssue(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
   context: IssueContext,
-  diagnosis: SpamCloseDiagnosis,
+  _diagnosis: SpamCloseDiagnosis,
 ) {
   const commentPosted = await postComment(
     session,
     commandEnv,
     context,
-    selectCloseComment(diagnosis, buildSpamCloseComment),
+    buildSpamCloseComment(),
   );
   await runGhCommand(
     session,
@@ -484,17 +468,18 @@ export async function closeSpamIssue(
   return commentPosted;
 }
 
+/** Closes invalid low-signal issues with a static Pierre comment. */
 export async function closeInvalidIssue(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
   context: IssueContext,
-  diagnosis: IssueCloseDiagnosis,
+  _diagnosis: IssueCloseDiagnosis,
 ) {
   const commentPosted = await postComment(
     session,
     commandEnv,
     context,
-    selectCloseComment(diagnosis, buildInvalidCloseComment),
+    buildInvalidCloseComment(),
   );
   await runGhCommand(
     session,

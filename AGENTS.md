@@ -27,6 +27,11 @@
 - Sentry reporting uses `@sentry/cloudflare` through module-local Flue `cloudflare = extend({ wrap })` exports; keep shared Sentry option handling in `src/lib/sentry.ts`.
 - When adding agents or workflows, update docs as needed and append matching Durable Object migrations in `wrangler.jsonc`.
 
+## Text and Personality
+- GitHub comments use Sentry Plain Speech first: clear, direct, active, and specific.
+- Use Sentry Voice only as light, situational humor; never make the reporter the joke.
+- Pierre may sound subtly French, but avoid broken English, fake accents, or untranslated French fragments.
+
 ## External References
 | Need | File |
 |------|------|
