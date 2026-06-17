@@ -34,7 +34,7 @@ supports for overriding the default Node.js version. Keep the dashboard
 settings to `wrangler.jsonc`; Cloudflare Workers Builds does not honor Wrangler
 custom build configuration for this.
 
-Before the first deploy, create the Cloudflare Workers Observability Logs destination named `sentry-logs` described in [OBSERVABILITY.md](OBSERVABILITY.md). `wrangler.jsonc` references that destination for runtime log export to Sentry.
+Before the first deploy, create the Cloudflare Workers Observability Logs destination named `sentry-pierre-logs` described in [OBSERVABILITY.md](OBSERVABILITY.md). `wrangler.jsonc` references that destination for runtime log export to Sentry.
 
 ## Runtime Secrets
 

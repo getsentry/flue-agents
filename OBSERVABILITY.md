@@ -42,13 +42,13 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 
 Cloudflare Workers Builds logs are deployment logs. They are configured in Cloudflare Dashboard under the Worker **Settings > Builds** area and are not controlled by `wrangler.jsonc`.
 
-Runtime platform log export is configured with Cloudflare Workers Observability destinations, not with the Sentry SDK. `wrangler.jsonc` enables Workers log export to a destination named `sentry-logs`:
+Runtime platform log export is configured with Cloudflare Workers Observability destinations, not with the Sentry SDK. `wrangler.jsonc` enables Workers log export to a destination named `sentry-pierre-logs`:
 
 ```jsonc
 "observability": {
   "logs": {
     "enabled": true,
-    "destinations": ["sentry-logs"]
+    "destinations": ["sentry-pierre-logs"]
   }
 }
 ```
@@ -66,7 +66,7 @@ Create that destination in Cloudflare before deploying:
 4. Add a destination:
 
    ```text
-   Destination Name: sentry-logs
+   Destination Name: sentry-pierre-logs
    Destination Type: Logs
    OTLP Endpoint: <Sentry OTLP logs endpoint>
    Custom Header Name: x-sentry-auth
@@ -96,7 +96,7 @@ pnpm run build
 After deploy, verify:
 
 - The Worker has a non-empty `SENTRY_DSN` runtime secret.
-- Cloudflare has a Workers Observability Logs destination named `sentry-logs`.
+- Cloudflare has a Workers Observability Logs destination named `sentry-pierre-logs`.
 - Sentry receives events in the expected project and environment.
 - One explicit Flue `ctx.log.error(...)` call appears in Sentry with the expected `flue.*` correlation tags.
 - Worker logs are visible with `pnpm exec wrangler tail sentry-flue-agents`.

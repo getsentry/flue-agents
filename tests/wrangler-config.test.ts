@@ -6,5 +6,7 @@ test("exports Cloudflare Worker logs to the Sentry observability destination", a
   const config = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
 
   assert.equal(config.observability?.logs?.enabled, true);
-  assert.ok(config.observability?.logs?.destinations?.includes("sentry-logs"));
+  assert.ok(
+    config.observability?.logs?.destinations?.includes("sentry-pierre-logs"),
+  );
 });

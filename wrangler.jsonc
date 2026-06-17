@@ -6,7 +6,7 @@
   "observability": {
     "logs": {
       "enabled": true,
-      "destinations": ["sentry-logs"]
+      "destinations": ["sentry-pierre-logs"]
     }
   },
   "ai": {
