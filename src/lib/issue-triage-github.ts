@@ -22,6 +22,10 @@ export type GithubCommandEnv = Record<string, string> & {
 export type IssueContext = {
   issueNumber: number;
   repository?: string;
+  reporter?: {
+    association?: string;
+    trusted?: boolean;
+  };
   issue: unknown;
   labels: unknown;
   fetchedAt: string;
@@ -367,10 +371,6 @@ function normalizePierreComment(body?: string) {
     new RegExp(`^${PIERRE_LEGACY_COMMENT_OPENER.replace(".", "\\.")}`),
     PIERRE_COMMENT_OPENER,
   );
-}
-
-export function hasPuntingCloseLanguage(comment: string) {
-  return /maintainer can decide whether to .*close/i.test(comment);
 }
 
 export const PIERRE_SPAM_CLOSE_COMMENTS = [

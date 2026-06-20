@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test, { mock } from "node:test";
+import test, { mock, type TestContext } from "node:test";
 
 import {
   applyLabels,
@@ -46,6 +46,22 @@ async function readSpamFixture() {
 async function readInvalidLowSignalFixture() {
   const fixtureUrl = new URL(
     "../fixtures/issue-triage/invalid-low-signal-rewrite-1.json",
+    import.meta.url,
+  );
+  return JSON.parse(await readFile(fixtureUrl, "utf8"));
+}
+
+async function readMemberActionableFixture() {
+  const fixtureUrl = new URL(
+    "../fixtures/issue-triage/member-actionable-sentry-mcp-1111.json",
+    import.meta.url,
+  );
+  return JSON.parse(await readFile(fixtureUrl, "utf8"));
+}
+
+async function readMemberTrackingFixture() {
+  const fixtureUrl = new URL(
+    "../fixtures/issue-triage/member-tracking-junior-622.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8"));
@@ -435,6 +451,237 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
   assert.match(commentBody, /^Hi, I'm Pierre!/);
   assert.ok(Array.from(PIERRE_INVALID_CLOSE_COMMENTS).includes(commentBody));
   assert.doesNotMatch(commentBody, /^Pierre here\./);
+});
+
+async function runMemberCommentSuppressionFixture(
+  t: TestContext,
+  fixture: any,
+) {
+  mockModuleOnce("@flue/runtime/cloudflare", {
+    namedExports: {
+      extend: (descriptor: unknown) => descriptor,
+    },
+  });
+  mockModuleOnce("@sentry/cloudflare", {
+    namedExports: {
+      instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
+        Final,
+    },
+  });
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
+
+  const { run: runIssueTriageWorkflow } = await import(
+    "../src/workflows/issue-triage.ts"
+  );
+  const shellCalls: ShellCall[] = [];
+  const files = new Map<string, string>();
+  const labels = fixture.issue.labelsAtCapture.map((name: string) => ({
+    name,
+    description: "Existing label",
+  }));
+  const issue = {
+    title: fixture.issue.title,
+    body: fixture.issue.body,
+    author: { login: fixture.issue.author },
+    labels,
+    comments: [],
+    url: fixture.source.issueUrl,
+    state: "open",
+    createdAt: "2026-06-19T00:00:00Z",
+    updatedAt: fixture.source.capturedAt,
+  };
+  const session = {
+    shell: async (command: string, options?: { env?: Record<string, string> }) => {
+      shellCalls.push({ command, env: options?.env });
+
+      if (command.startsWith(`gh issue view ${fixture.source.issueNumber}`)) {
+        return { exitCode: 0, stdout: JSON.stringify(issue), stderr: "" };
+      }
+
+      if (command.startsWith("gh api ")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            author_association: fixture.issue.authorAssociation,
+          }),
+          stderr: "",
+        };
+      }
+
+      if (command.startsWith("gh label list")) {
+        return { exitCode: 0, stdout: JSON.stringify(labels), stderr: "" };
+      }
+
+      if (command.startsWith("gh search issues")) {
+        return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
+      }
+
+      if (command === "git rev-parse --show-toplevel") {
+        return { exitCode: 1, stdout: "", stderr: "not a git repository" };
+      }
+
+      if (command.startsWith("gh repo clone ")) {
+        return { exitCode: 1, stdout: "", stderr: "clone unavailable" };
+      }
+
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+    fs: {
+      mkdir: async () => {},
+      writeFile: async (path: string, body: string) => {
+        files.set(path, body);
+      },
+      rm: async () => {},
+    },
+    skill: async (_name: string, options: { args?: { stage?: string } }) => {
+      if (options.args?.stage === "search-duplicates") {
+        return {
+          data: {
+            status: "unique",
+            candidates: [],
+            rationale: "No duplicate candidates matched.",
+          },
+        };
+      }
+
+      const modelDiagnosis = fixture.modelDiagnosis ?? {};
+      return {
+        data: {
+          severity: "low",
+          category: "feature_request",
+          disposition: "actionable",
+          rewrite_mode: "none",
+          validity: "likely",
+          summary: "The issue is already clear and actionable.",
+          evidence: ["The reporter supplied the relevant context."],
+          labels_to_apply: [],
+          should_comment: true,
+          comment_kind: "scope_note",
+          comment_rationale:
+            "The model attempted to add a public note, but it adds no new action.",
+          should_update_issue: false,
+          triage_comment: fixture.observedComment,
+          should_close: false,
+          needs_human_review: false,
+          ...modelDiagnosis,
+        },
+      };
+    },
+  } as any;
+  const privateKey = await generateTestGitHubPrivateKey();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    mock.fn(async () => Response.json({ token: "workflow-installation-token" })),
+  );
+
+  const result = await runIssueTriageWorkflow({
+    init: async () => ({
+      session: async () => session,
+    }),
+    payload: {
+      issueNumber: fixture.source.issueNumber,
+      repository: fixture.source.repository,
+    },
+    env: {
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_INSTALLATION_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: privateKey,
+    },
+    log: {
+      info: () => {},
+      warn: () => {},
+    },
+  } as any);
+
+  assert.equal(result.outcome, "triaged");
+  assert.equal(result.comment_posted, fixture.expectedTriage.comment_posted);
+  assert.equal(result.issue_closed, false);
+  assert.equal(result.title_updated, false);
+  assert.equal(result.body_updated, false);
+  assert.ok(
+    fixture.expectedTriage.comment_posted
+      ? shellCalls.some(({ command }) => command.startsWith("gh issue comment"))
+      : shellCalls.every(
+          ({ command }) => !command.startsWith("gh issue comment"),
+        ),
+  );
+  assert.equal(files.size > 0, fixture.expectedTriage.comment_posted);
+  if (fixture.expectedTriage.comment_posted) {
+    const [commentPath, commentBody] = Array.from(files.entries())[0];
+    assert.equal(commentBody, fixture.observedComment);
+    assert.ok(
+      shellCalls.some(
+        ({ command }) =>
+          command ===
+          `gh issue comment ${fixture.source.issueNumber} --repo '${fixture.source.repository}' --body-file '${commentPath}'`,
+      ),
+    );
+  }
+}
+
+test("suppresses low-value actionable comments on member feature requests", async (t) => {
+  await runMemberCommentSuppressionFixture(t, await readMemberActionableFixture());
+});
+
+test("suppresses praise and restatement comments on member tracking issues", async (t) => {
+  await runMemberCommentSuppressionFixture(t, await readMemberTrackingFixture());
+});
+
+test("keeps specific missing-info comments for outside contributors", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.issue.author = "external-reporter";
+  fixture.issue.authorAssociation = "NONE";
+  fixture.observedComment = [
+    "Hi, I'm Pierre!",
+    "",
+    "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
+  ].join("\n");
+  fixture.expectedTriage.comment_posted = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("keeps concrete validation comments for member issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.observedComment = [
+    "Hi, I'm Pierre!",
+    "",
+    "Merci for the report. I found one extra repo detail that seems useful here.",
+    "",
+    "What I checked:",
+    "- `packages/mcp-core/src/api-client/client.ts` has no issue user reports wrapper today.",
+  ].join("\n");
+  fixture.expectedTriage.comment_posted = true;
+  fixture.modelDiagnosis = {
+    comment_kind: "concrete_validation",
+    comment_rationale: "Adds a concrete repository finding not already captured.",
+    evidence: [
+      "`packages/mcp-core/src/api-client/client.ts` has no issue user reports wrapper today.",
+    ],
+  };
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("suppresses rhetorical questions on member actionable issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.observedComment = [
+    "Hi, I'm Pierre!",
+    "",
+    "What happens next? The issue already covers the sensible paths, so a maintainer can take it from here.",
+  ].join("\n");
+  fixture.expectedTriage.comment_posted = false;
+  fixture.modelDiagnosis = {
+    comment_kind: "scope_note",
+  };
+
+  await runMemberCommentSuppressionFixture(t, fixture);
 });
 
 test("mints a GitHub App installation token for gh commands", async (t) => {
