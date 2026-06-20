@@ -18,7 +18,6 @@ import {
   closeSpamIssue,
   findDuplicateLabel,
   type GithubCommandEnv,
-  hasPuntingCloseLanguage,
   resolveGithubCommandEnv,
   type IssueContext,
   isRecord,
@@ -88,6 +87,15 @@ const rewriteModeSchema = v.picklist([
   "scope_clarification",
 ]);
 const closeReasonSchema = v.picklist(["not planned"]);
+const commentKindSchema = v.picklist([
+  "none",
+  "missing_info_request",
+  "concrete_validation",
+  "scope_note",
+  "edit_notice",
+  "duplicate_notice",
+  "closure_notice",
+]);
 
 const duplicateCandidateSchema = v.object({
   number: v.pipe(v.number(), v.integer(), v.minValue(1)),
@@ -118,6 +126,8 @@ const diagnosisSchema = v.object({
   evidence: v.array(v.string()),
   labels_to_apply: v.array(v.string()),
   should_comment: v.boolean(),
+  comment_kind: v.optional(commentKindSchema),
+  comment_rationale: v.optional(v.string()),
   should_update_issue: v.boolean(),
   proposed_title: v.optional(v.string()),
   proposed_body: v.optional(v.string()),
@@ -141,6 +151,22 @@ const updateSchema = v.object({
   needs_human_review: v.boolean(),
   summary: v.string(),
 });
+
+const TRUSTED_REPORTER_ASSOCIATIONS = new Set([
+  "OWNER",
+  "MEMBER",
+  "COLLABORATOR",
+]);
+
+function normalizeAuthorAssociation(value: string) {
+  const association = value.trim().toUpperCase();
+  return association || null;
+}
+
+function isTrustedAssociation(association?: string) {
+  const normalized = association ? normalizeAuthorAssociation(association) : null;
+  return normalized !== null && TRUSTED_REPORTER_ASSOCIATIONS.has(normalized);
+}
 
 function summarizeAgentFailure(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -305,6 +331,57 @@ function getIssueBody(context: IssueContext) {
   return context.issue.body;
 }
 
+function getIssueAuthorAssociation(context: IssueContext) {
+  if (context.reporter?.association) {
+    return normalizeAuthorAssociation(context.reporter.association);
+  }
+
+  if (!isRecord(context.issue)) {
+    return null;
+  }
+
+  if (typeof context.issue.authorAssociation === "string") {
+    return normalizeAuthorAssociation(context.issue.authorAssociation);
+  }
+
+  if (typeof context.issue.author_association === "string") {
+    return normalizeAuthorAssociation(context.issue.author_association);
+  }
+
+  if (
+    isRecord(context.issue.author) &&
+    typeof context.issue.author.association === "string"
+  ) {
+    return normalizeAuthorAssociation(context.issue.author.association);
+  }
+
+  return null;
+}
+
+function isTrustedReporter(context: IssueContext) {
+  return context.reporter?.trusted === true
+    ? true
+    : isTrustedAssociation(getIssueAuthorAssociation(context) ?? undefined);
+}
+
+/**
+ * Suppresses standalone trusted-reporter comments unless the model classifies
+ * them as a blocking ask or concrete repository validation finding.
+ */
+function shouldSuppressTriageComment(
+  context: IssueContext,
+  diagnosis: Diagnosis,
+) {
+  if (!isTrustedReporter(context)) {
+    return false;
+  }
+
+  return !(
+    diagnosis.comment_kind === "missing_info_request" ||
+    diagnosis.comment_kind === "concrete_validation"
+  );
+}
+
 async function readJsonCommand(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
@@ -327,6 +404,50 @@ async function readJsonCommand(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`${description} returned invalid JSON: ${message}`);
+  }
+}
+
+/** Reads reporter association from GitHub or legacy issue-shaped fields. */
+function readAuthorAssociation(value: unknown) {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (typeof value.authorAssociation === "string") {
+    return normalizeAuthorAssociation(value.authorAssociation);
+  }
+
+  if (typeof value.author_association === "string") {
+    return normalizeAuthorAssociation(value.author_association);
+  }
+
+  if (isRecord(value.author) && typeof value.author.association === "string") {
+    return normalizeAuthorAssociation(value.author.association);
+  }
+
+  return null;
+}
+
+async function readReporterAssociation(
+  session: FlueSession,
+  commandEnv: GithubCommandEnv,
+  issueNumber: number,
+  repository?: string,
+) {
+  if (!repository) {
+    return null;
+  }
+
+  try {
+    const issue = await readJsonCommand(
+      session,
+      commandEnv,
+      `gh api ${shellQuote(`/repos/${repository}/issues/${issueNumber}`)}`,
+      "Fetching issue reporter association",
+    );
+    return readAuthorAssociation(issue);
+  } catch {
+    return null;
   }
 }
 
@@ -405,33 +526,12 @@ async function closeDuplicate(
   return labelsApplied;
 }
 
-function buildUnsafeCloseComment(diagnosis: Diagnosis) {
-  const lines = [
+function buildUnsafeCloseComment() {
+  return [
     PIERRE_COMMENT_OPENER,
     "",
     "I do not have enough confidence to close this automatically. A maintainer can make the call.",
-  ];
-
-  if (diagnosis.summary.trim()) {
-    lines.push("", `Current read: ${diagnosis.summary.trim()}`);
-  }
-
-  return lines.join("\n");
-}
-
-function selectUnsafeCloseComment(diagnosis: Diagnosis) {
-  const comment =
-    diagnosis.triage_comment?.trim() || diagnosis.close_comment?.trim();
-
-  if (
-    comment &&
-    !/\bclos/i.test(comment) &&
-    !hasPuntingCloseLanguage(comment)
-  ) {
-    return comment;
-  }
-
-  return buildUnsafeCloseComment(diagnosis);
+  ].join("\n");
 }
 
 function buildIssueUpdateComment(
@@ -482,6 +582,7 @@ function buildIssueUpdateComment(
 
 function selectTriageComment(
   diagnosis: v.InferOutput<typeof diagnosisSchema>,
+  context: IssueContext,
   bodyUpdated: boolean,
 ) {
   if (bodyUpdated) {
@@ -496,7 +597,16 @@ function selectTriageComment(
     return undefined;
   }
 
-  return diagnosis.triage_comment?.trim();
+  const comment = diagnosis.triage_comment?.trim();
+  if (!comment) {
+    return undefined;
+  }
+
+  if (shouldSuppressTriageComment(context, diagnosis)) {
+    return undefined;
+  }
+
+  return comment;
 }
 
 async function applyTriageUpdate(
@@ -586,15 +696,15 @@ async function applyTriageUpdate(
     );
 
     const comment = unsafeCloseRequest
-      ? selectUnsafeCloseComment(diagnosis)
-      : selectTriageComment(diagnosis, bodyUpdated);
+      ? buildUnsafeCloseComment()
+      : selectTriageComment(diagnosis, context, bodyUpdated);
     if (comment) {
       commentPosted = await postComment(session, commandEnv, context, comment);
     }
   } else {
     const comment = unsafeCloseRequest
-      ? selectUnsafeCloseComment(diagnosis)
-      : selectTriageComment(diagnosis, false);
+      ? buildUnsafeCloseComment()
+      : selectTriageComment(diagnosis, context, false);
     if (comment) {
       commentPosted = await postComment(session, commandEnv, context, comment);
     }
@@ -635,6 +745,12 @@ async function readIssueContext(
     `gh issue view ${issueNumber}${repo} --json title,body,author,labels,comments,url,state,createdAt,updatedAt`,
     "Fetching issue context",
   );
+  const reporterAssociation = await readReporterAssociation(
+    session,
+    commandEnv,
+    issueNumber,
+    repository,
+  );
   const labels = await readJsonCommand(
     session,
     commandEnv,
@@ -650,6 +766,12 @@ async function readIssueContext(
 
   if (repository) {
     context.repository = repository;
+  }
+  if (reporterAssociation) {
+    context.reporter = {
+      association: reporterAssociation,
+      trusted: isTrustedAssociation(reporterAssociation),
+    };
   }
 
   return context;

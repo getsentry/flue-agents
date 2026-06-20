@@ -30,6 +30,15 @@ const rewriteModeSchema = v.picklist([
   "scope_clarification",
 ]);
 const closeReasonSchema = v.picklist(["not planned"]);
+const commentKindSchema = v.picklist([
+  "none",
+  "missing_info_request",
+  "concrete_validation",
+  "scope_note",
+  "edit_notice",
+  "duplicate_notice",
+  "closure_notice",
+]);
 
 export const issueTriageEvalDiagnosisSchema = v.object({
   severity: severitySchema,
@@ -41,6 +50,8 @@ export const issueTriageEvalDiagnosisSchema = v.object({
   evidence: v.array(v.string()),
   labels_to_apply: v.array(v.string()),
   should_comment: v.boolean(),
+  comment_kind: v.optional(commentKindSchema),
+  comment_rationale: v.optional(v.string()),
   should_update_issue: v.boolean(),
   proposed_title: v.optional(v.string()),
   proposed_body: v.optional(v.string()),
@@ -72,6 +83,8 @@ const fixtureSchema = v.object({
   expectedTriage: v.object({
     labels_to_apply: v.optional(v.array(v.string())),
     labels_include: v.optional(v.array(v.string())),
+    should_comment: v.optional(v.boolean()),
+    comment_kind: v.optional(commentKindSchema),
     should_update_issue: v.optional(v.boolean()),
     should_close: v.optional(v.boolean()),
     close_reason: v.optional(closeReasonSchema),
@@ -108,6 +121,18 @@ function evaluateDiagnosis(diagnosis: Diagnosis, fixture: EvalFixture) {
   const effectiveCloseReason =
     diagnosis.close_reason ?? (inferredShouldClose ? "not planned" : undefined);
 
+  addExactExpectation(
+    failures,
+    "should_comment",
+    diagnosis.should_comment,
+    expected.should_comment,
+  );
+  addExactExpectation(
+    failures,
+    "comment_kind",
+    diagnosis.comment_kind,
+    expected.comment_kind,
+  );
   addExactExpectation(
     failures,
     "should_update_issue",
@@ -152,9 +177,18 @@ function buildIssueContext(fixture: EvalFixture) {
     fixture.source.issueUrl ??
     `https://github.com/${fixture.source.repository}/issues/${fixture.source.issueNumber}`;
 
+  const association = fixture.issue.authorAssociation?.trim();
   return {
     issueNumber: fixture.source.issueNumber,
     repository: fixture.source.repository,
+    reporter: association
+      ? {
+          association,
+          trusted: ["OWNER", "MEMBER", "COLLABORATOR"].includes(
+            association.toUpperCase(),
+          ),
+        }
+      : undefined,
     issue: {
       title: fixture.issue.title,
       body: fixture.issue.body,
