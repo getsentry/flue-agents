@@ -7,6 +7,7 @@ import {
   closeSpamIssue,
   PIERRE_INVALID_CLOSE_COMMENTS,
   PIERRE_SPAM_CLOSE_COMMENTS,
+  postComment,
   resolveGithubCommandEnv,
   type IssueContext,
 } from "../src/lib/issue-triage-github.ts";
@@ -150,6 +151,68 @@ test("defines multiple hardcoded Pierre close comment variants", () => {
   }
 });
 
+test("introduces Pierre only to first-time contributors", async () => {
+  const postedComments: string[] = [];
+  const session = {
+    shell: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    fs: {
+      mkdir: async () => {},
+      writeFile: async (_path: string, body: string) => {
+        postedComments.push(body);
+      },
+    },
+  } as any;
+  const commandEnv = {
+    GH_TOKEN: "installation-token",
+    GITHUB_TOKEN: "installation-token",
+  } as any;
+  const context: IssueContext = {
+    issueNumber: 1,
+    reporter: { association: "MEMBER", trusted: true },
+    issue: {},
+    labels: [],
+    fetchedAt: "2026-07-10T00:00:00Z",
+  };
+
+  await postComment(
+    session,
+    commandEnv,
+    context,
+    "Hi, I'm Pierre!\n\nI found one useful detail.",
+  );
+  context.reporter = {
+    association: "FIRST_TIME_CONTRIBUTOR",
+    trusted: false,
+  };
+  await postComment(
+    session,
+    commandEnv,
+    context,
+    "Pierre here.\n\nI need one concrete reproduction.",
+  );
+  context.reporter = { association: "FIRST_TIMER", trusted: false };
+  await postComment(
+    session,
+    commandEnv,
+    context,
+    "I confirmed the affected path.",
+  );
+  context.reporter = undefined;
+  await postComment(
+    session,
+    commandEnv,
+    context,
+    "Pierre here.\n\nI found one useful detail.",
+  );
+
+  assert.deepEqual(postedComments, [
+    "I found one useful detail.",
+    "Hi, I'm Pierre!\n\nI need one concrete reproduction.",
+    "Hi, I'm Pierre!\n\nI confirmed the affected path.",
+    "I found one useful detail.",
+  ]);
+});
+
 test("closes external registry spam using the deterministic GitHub update path", async () => {
   const fixture = await readSpamFixture();
   const shellCalls: ShellCall[] = [];
@@ -242,8 +305,12 @@ test("closes external registry spam using the deterministic GitHub update path",
   );
   assert.match(commentBody, /promotion|outreach/);
   assert.match(commentBody, /I'm closing (it|this) as invalid/);
-  assert.match(commentBody, /^Hi, I'm Pierre!/);
-  assert.ok(Array.from(PIERRE_SPAM_CLOSE_COMMENTS).includes(commentBody));
+  assert.doesNotMatch(commentBody, /^Hi, I'm Pierre!/);
+  assert.ok(
+    Array.from(PIERRE_SPAM_CLOSE_COMMENTS).some((variant) =>
+      variant.endsWith(commentBody),
+    ),
+  );
   assert.doesNotMatch(commentBody, /maintainer can decide whether to .*close/i);
   assert.equal(fsOps[0]?.startsWith("mkdir /workspace/.tmp/issue-triage-"), true);
   assert.equal(fsOps[1], `write ${commentPath}`);
@@ -445,11 +512,12 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
   );
 
   const commentBody = Array.from(files.values()).find((body) =>
-    Array.from(PIERRE_INVALID_CLOSE_COMMENTS).includes(body),
+    Array.from(PIERRE_INVALID_CLOSE_COMMENTS).some((variant) =>
+      variant.endsWith(body),
+    ),
   );
   assert.ok(commentBody);
-  assert.match(commentBody, /^Hi, I'm Pierre!/);
-  assert.ok(Array.from(PIERRE_INVALID_CLOSE_COMMENTS).includes(commentBody));
+  assert.doesNotMatch(commentBody, /^Hi, I'm Pierre!/);
   assert.doesNotMatch(commentBody, /^Pierre here\./);
 });
 
@@ -638,6 +706,18 @@ test("keeps specific missing-info comments for outside contributors", async (t) 
   fixture.issue.author = "external-reporter";
   fixture.issue.authorAssociation = "NONE";
   fixture.observedComment = [
+    "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
+  ].join("\n");
+  fixture.expectedTriage.comment_posted = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("introduces Pierre in comments for first-time contributors", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.issue.author = "new-reporter";
+  fixture.issue.authorAssociation = "FIRST_TIME_CONTRIBUTOR";
+  fixture.observedComment = [
     "Hi, I'm Pierre!",
     "",
     "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
@@ -650,8 +730,6 @@ test("keeps specific missing-info comments for outside contributors", async (t) 
 test("keeps concrete validation comments for member issues", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.observedComment = [
-    "Hi, I'm Pierre!",
-    "",
     "Merci for the report. I found one extra repo detail that seems useful here.",
     "",
     "What I checked:",

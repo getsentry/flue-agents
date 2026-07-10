@@ -2,6 +2,17 @@ export const PIERRE_COMMENT_OPENER = "Hi, I'm Pierre!";
 
 export const PIERRE_LEGACY_COMMENT_OPENER = "Pierre here.";
 
+const FIRST_TIME_CONTRIBUTOR_ASSOCIATIONS = new Set([
+  "FIRST_TIMER",
+  "FIRST_TIME_CONTRIBUTOR",
+]);
+
+export function shouldIntroducePierre(association?: string) {
+  return FIRST_TIME_CONTRIBUTOR_ASSOCIATIONS.has(
+    association?.trim().toUpperCase() ?? "",
+  );
+}
+
 export const PIERRE_PERSONALITY = [
   "Pierre is a French intern who writes in English.",
   "Follow Sentry Plain Speech by default: be concise, direct, active, specific, and jargon-free.",
