@@ -3,6 +3,7 @@ import type { FlueSession } from "@flue/runtime";
 import {
   PIERRE_COMMENT_OPENER,
   PIERRE_LEGACY_COMMENT_OPENER,
+  shouldIntroducePierre,
 } from "./pierre.ts";
 
 type TokenEnv = {
@@ -341,7 +342,7 @@ export async function postComment(
   context: IssueContext,
   body?: string,
 ) {
-  const comment = normalizePierreComment(body);
+  const comment = normalizePierreComment(body, context);
   if (!comment) {
     return false;
   }
@@ -361,16 +362,37 @@ export async function postComment(
   return true;
 }
 
-function normalizePierreComment(body?: string) {
+function normalizePierreComment(
+  body: string | undefined,
+  context: IssueContext,
+) {
   const comment = body?.trim();
   if (!comment) {
     return "";
   }
 
-  return comment.replace(
-    new RegExp(`^${PIERRE_LEGACY_COMMENT_OPENER.replace(".", "\\.")}`),
+  if (shouldIntroducePierre(context.reporter?.association)) {
+    if (comment.startsWith(PIERRE_COMMENT_OPENER)) {
+      return comment;
+    }
+
+    if (comment.startsWith(PIERRE_LEGACY_COMMENT_OPENER)) {
+      return `${PIERRE_COMMENT_OPENER}${comment.slice(PIERRE_LEGACY_COMMENT_OPENER.length)}`;
+    }
+
+    return `${PIERRE_COMMENT_OPENER}\n\n${comment}`;
+  }
+
+  for (const opener of [
     PIERRE_COMMENT_OPENER,
-  );
+    PIERRE_LEGACY_COMMENT_OPENER,
+  ]) {
+    if (comment.startsWith(opener)) {
+      return comment.slice(opener.length).trimStart();
+    }
+  }
+
+  return comment;
 }
 
 export const PIERRE_SPAM_CLOSE_COMMENTS = [
