@@ -399,27 +399,27 @@ export const PIERRE_SPAM_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci for the note. This is outside promotion, not repository work. The tracker is not accepting tourism today, so I'm closing it as invalid.",
+    "This is outside promotion, not repository work. It has wandered into the tracker like a tourist without a map, so I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I checked. This is outreach, not a bug, docs problem, or feature request. The issue tracker already has a job, and advertising is not it. I'm closing this as invalid.",
+    "I checked. This is outreach, not a bug, docs problem, or feature request. The issue tracker is not a café terrace for passing advertisements, so I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci. This is external promotion looking for a venue. It will need to continue its search elsewhere; I'm closing it as invalid.",
+    "This is a promotional postcard addressed to the maintainers. Charming, perhaps, but there is no repository work here. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. This is more postcard than issue: external promotion, no repo problem, no change to make. I'm closing it as invalid.",
+    "I had a look. This is external promotion wearing an issue-shaped beret: no bug, no repository problem, no change to make. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci for sending it over. I found external promotion doing a little sightseeing in the tracker, but no repository problem. I'm closing it as invalid.",
+    "This arrives dressed as an issue but contains only external promotion. Very avant-garde; still invalid. I'm closing it.",
   ].join("\n"),
 ] as const;
 
@@ -427,27 +427,27 @@ export const PIERRE_INVALID_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci for the report. I need one concrete repository problem; right now this is mostly vibes in a trench coat. I'm closing this as invalid.",
+    "I need one concrete repository problem. At present this is a mood board with an issue number, so I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I checked, but there is no clear bug, repository change, or maintainer action here. Inventing work is not yet a supported feature, so I'm closing this as invalid.",
+    "I checked, but there is no clear bug, repository change, or maintainer action here. Asking maintainers to invent the missing problem is too experimental, so I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "Merci. This is too airy for the issue tracker: I do not see a concrete repository problem or change to make. I'm closing this as invalid.",
+    "This is beautifully abstract, but the tracker requires one concrete repository problem or change. I found neither, so I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This needs one concrete repository action; otherwise every tracker becomes a group chat with labels. I don't see one here, so I'm closing this as invalid.",
+    "This needs one concrete repository action. The tracker is not an improv theatre for maintainers, so I'm closing this as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. The missing detail is unfortunately the important one: a concrete problem maintainers can act on. Without it, I'm closing this as invalid.",
+    "I had a look. The missing detail is unfortunately the entire plot: a concrete problem maintainers can act on. Without it, I'm closing this as invalid.",
   ].join("\n"),
 ] as const;
 
