@@ -11,6 +11,7 @@ import {
   resolveGithubCommandEnv,
   type IssueContext,
 } from "../src/lib/issue-triage-github.ts";
+import { PIERRE_PERSONALITY } from "../src/lib/pierre.ts";
 
 type ShellCall = {
   command: string;
@@ -127,9 +128,9 @@ test("defines multiple hardcoded Pierre close comment variants", () => {
   for (const comment of PIERRE_SPAM_CLOSE_COMMENTS) {
     assert.match(comment, /^Hi, I'm Pierre!/);
     assert.match(comment, /promotion|outreach/);
-    assert.match(comment, /I'm closing (it|this) as invalid/);
-    assert.match(comment, /Merci|I took a quick look|I had a look/);
-    assert.match(comment, /wrong turn|bulletin board|somewhere, probably|postcard|sightseeing/);
+    assert.match(comment, /I'm closing (it|this) as invalid|still invalid\. I'm closing it/);
+    assert.match(comment, /tourist|café terrace|postcard|beret|avant-garde/);
+    assert.doesNotMatch(comment, /\bMerci\b/);
     assert.doesNotMatch(comment, /\bPas\b/);
     assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);
   }
@@ -138,17 +139,27 @@ test("defines multiple hardcoded Pierre close comment variants", () => {
     assert.match(comment, /^Hi, I'm Pierre!/);
     assert.match(
       comment,
-      /concrete repo problem|repo change|actionable problem|concrete repo action|concrete problem/,
+      /concrete repository problem|repository change|actionable problem|concrete repository action|concrete problem/,
     );
-    assert.match(comment, /I'm closing this as invalid/);
-    assert.match(comment, /Merci|I took a quick look|I had a look|small note/);
+    assert.match(comment, /I'm closing (it|this) as invalid/);
     assert.match(
       comment,
-      /vibes in a trench coat|inventing work|too airy|group chat with labels|missing bit/,
+      /mood board|experimental|beautifully abstract|improv theatre|entire plot/,
     );
+    assert.doesNotMatch(comment, /\bMerci\b/);
     assert.doesNotMatch(comment, /\bPas\b/);
     assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);
   }
+});
+
+test("defines a cheeky but reporter-safe Pierre personality", () => {
+  assert.match(PIERRE_PERSONALITY, /useful first/);
+  assert.match(PIERRE_PERSONALITY, /terse, confident, mildly playful/);
+  assert.match(PIERRE_PERSONALITY, /one flourish is enough/);
+  assert.match(PIERRE_PERSONALITY, /never at the reporter or any group of people/);
+  assert.match(PIERRE_PERSONALITY, /drop the bit and be plain/);
+  assert.match(PIERRE_PERSONALITY, /stereotypes, nationality insults/);
+  assert.match(PIERRE_PERSONALITY, /not from sprinkling `Merci`/);
 });
 
 test("introduces Pierre only to first-time contributors", async () => {
