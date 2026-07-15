@@ -10,7 +10,13 @@ The system SHALL expose GitHub issue triage through the `issue-triage` workflow 
 #### Scenario: Workflow route is available
 - **WHEN** the Flue project is built
 - **THEN** the `issue-triage` workflow is discoverable as the bounded entry point for issue triage
-- **AND** callers can invoke it with an issue number and optional repository.
+- **AND** callers can invoke it with an issue number, optional repository, and optional dry-run mode.
+
+#### Scenario: Dry-run verification
+- **WHEN** the workflow is invoked with `dryRun: true`
+- **THEN** it runs duplicate search, repository preparation, and diagnosis
+- **AND** returns proposed actions plus bug or gap analysis
+- **AND** does not apply labels, post comments, edit the issue, or close it.
 
 #### Scenario: Agent route is not exposed
 - **WHEN** the issue-triage agent module is loaded
