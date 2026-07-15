@@ -910,73 +910,65 @@ export async function run({
     }
 
     if (dryRun) {
-      return {
-        outcome: "dry_run",
-        steps: [
-          { name: "search-duplicates", result: duplicateSearch.status },
-          { name: "close-duplicate", result: "skipped: dry run" },
-        ],
-        duplicate: duplicateSearch.duplicate,
-        labels_applied: [],
-        comment_posted: false,
-        issue_closed: false,
-        needs_human_review: false,
-        summary: `Would close as a duplicate of #${duplicateSearch.duplicate.number}.`,
-      };
-    }
-
-    const closureContext = await readIssueContext(
-      session,
-      commandEnv,
-      issueNumber,
-      repository,
-    );
-    if (getIssueState(closureContext) === "closed") {
-      logInfo(log, "[issue-triage] Duplicate close skipped", {
+      logInfo(log, "[issue-triage] Duplicate closure deferred for dry run", {
         issueNumber,
         repository,
         duplicateNumber: duplicateSearch.duplicate.number,
-        reason: "already_closed",
       });
+    } else {
+      const closureContext = await readIssueContext(
+        session,
+        commandEnv,
+        issueNumber,
+        repository,
+      );
+      if (getIssueState(closureContext) === "closed") {
+        logInfo(log, "[issue-triage] Duplicate close skipped", {
+          issueNumber,
+          repository,
+          duplicateNumber: duplicateSearch.duplicate.number,
+          reason: "already_closed",
+        });
+        return {
+          outcome: "needs_human_review",
+          steps: [
+            { name: "search-duplicates", result: duplicateSearch.status },
+            { name: "close-duplicate", result: "skipped: already closed" },
+          ],
+          duplicate: duplicateSearch.duplicate,
+          labels_applied: [],
+          comment_posted: false,
+          issue_closed: false,
+          needs_human_review: true,
+          summary: "Skipped duplicate closure because the issue is already closed.",
+        };
+      }
+
+      const labelsApplied = await closeDuplicate(
+        session,
+        commandEnv,
+        closureContext,
+        duplicateSearch.duplicate,
+      );
+      logInfo(log, "[issue-triage] Duplicate closed", {
+        issueNumber,
+        repository,
+        duplicateNumber: duplicateSearch.duplicate.number,
+        labelsApplied,
+      });
+
       return {
-        outcome: "needs_human_review",
+        outcome: "duplicate_closed",
         steps: [
           { name: "search-duplicates", result: duplicateSearch.status },
-          { name: "close-duplicate", result: "skipped: already closed" },
+          { name: "close-duplicate", result: "closed" },
         ],
         duplicate: duplicateSearch.duplicate,
-        labels_applied: [],
-        comment_posted: false,
-        issue_closed: false,
-        needs_human_review: true,
-        summary: "Skipped duplicate closure because the issue is already closed.",
+        labels_applied: labelsApplied,
+        comment_posted: true,
+        summary: `Closed as a duplicate of #${duplicateSearch.duplicate.number}.`,
       };
     }
-
-    const labelsApplied = await closeDuplicate(
-      session,
-      commandEnv,
-      closureContext,
-      duplicateSearch.duplicate,
-    );
-    logInfo(log, "[issue-triage] Duplicate closed", {
-      issueNumber,
-      repository,
-      duplicateNumber: duplicateSearch.duplicate.number,
-      labelsApplied,
-    });
-
-    return {
-      outcome: "duplicate_closed",
-      steps: [
-        { name: "search-duplicates", result: duplicateSearch.status },
-        { name: "close-duplicate", result: "closed" },
-      ],
-      duplicate: duplicateSearch.duplicate,
-      labels_applied: labelsApplied,
-      comment_posted: true,
-      summary: `Closed as a duplicate of #${duplicateSearch.duplicate.number}.`,
-    };
   }
 
   const repositoryContext = await prepareRepository(
@@ -1101,6 +1093,7 @@ export async function run({
       disposition: diagnosis.disposition,
       rewrite_mode: diagnosis.rewrite_mode,
       validity: diagnosis.validity,
+      duplicate: duplicateSearch.duplicate,
       labels_proposed: diagnosis.labels_to_apply,
       should_comment: diagnosis.should_comment,
       should_update_issue: diagnosis.should_update_issue,
