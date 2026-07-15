@@ -948,7 +948,9 @@ export async function run({
     issueNumber,
     repository,
   );
-  if (issueSnapshot(diagnosisContext) !== issueSnapshot(updateContext)) {
+  const issueChanged =
+    issueSnapshot(diagnosisContext) !== issueSnapshot(updateContext);
+  if (!dryRun && issueChanged) {
     return {
       outcome: "needs_human_review",
       steps: [
@@ -1007,13 +1009,18 @@ export async function run({
       body_updated: false,
       issue_closed: false,
       needs_human_review:
-        diagnosis.needs_human_review || diagnosisValidationError !== undefined,
+        diagnosis.needs_human_review ||
+        diagnosisValidationError !== undefined ||
+        issueChanged,
       summary: diagnosis.summary,
-      update_summary: diagnosisValidationError
-        ? "Skipped all GitHub mutations because this was a dry run; the proposed diagnosis also requires human review after failing semantic validation."
-        : "Skipped all GitHub mutations because this was a dry run.",
+      update_summary: issueChanged
+        ? "Skipped all GitHub mutations because this was a dry run; the issue changed during analysis, so the proposed diagnosis requires human review."
+        : diagnosisValidationError
+          ? "Skipped all GitHub mutations because this was a dry run; the proposed diagnosis also requires human review after failing semantic validation."
+          : "Skipped all GitHub mutations because this was a dry run.",
       evidence: diagnosis.evidence,
       validation_error: diagnosisValidationError,
+      issue_changed: issueChanged,
       bug_analysis: diagnosis.bug_analysis,
       gap_analysis: diagnosis.gap_analysis,
     };
