@@ -66,6 +66,7 @@ const repositorySchema = v.pipe(
 const payloadSchema = v.object({
   issueNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
   repository: v.optional(repositorySchema),
+  dryRun: v.optional(v.boolean(), false),
 });
 
 const duplicateCandidateSchema = v.object({
@@ -720,8 +721,12 @@ export async function run({
   env,
   log,
 }: FlueContext<unknown, Env>) {
-  const { issueNumber, repository } = v.parse(payloadSchema, payload);
-  logInfo(log, "[issue-triage] Run accepted", { issueNumber, repository });
+  const { issueNumber, repository, dryRun } = v.parse(payloadSchema, payload);
+  logInfo(log, "[issue-triage] Run accepted", {
+    issueNumber,
+    repository,
+    dryRun,
+  });
   const commandEnv = await resolveGithubCommandEnv(env, repository);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(`issue-${issueNumber}`);
@@ -806,6 +811,22 @@ export async function run({
       throw new Error(
         `Duplicate search returned duplicate status without a canonical issue for #${issueNumber}.`,
       );
+    }
+
+    if (dryRun) {
+      return {
+        outcome: "dry_run",
+        steps: [
+          { name: "search-duplicates", result: duplicateSearch.status },
+          { name: "close-duplicate", result: "skipped: dry run" },
+        ],
+        duplicate: duplicateSearch.duplicate,
+        labels_applied: [],
+        comment_posted: false,
+        issue_closed: false,
+        needs_human_review: false,
+        summary: `Would close as a duplicate of #${duplicateSearch.duplicate.number}.`,
+      };
     }
 
     const closureContext = await readIssueContext(
@@ -947,6 +968,41 @@ export async function run({
       summary: diagnosis.summary,
       update_summary:
         "Skipped triage mutations because the issue changed during analysis.",
+      evidence: diagnosis.evidence,
+      bug_analysis: diagnosis.bug_analysis,
+      gap_analysis: diagnosis.gap_analysis,
+    };
+  }
+
+  if (dryRun) {
+    return {
+      outcome: "dry_run",
+      steps: [
+        { name: "search-duplicates", result: duplicateSearch.status },
+        {
+          name: "prepare-repository",
+          result: repositoryContext.checkoutAvailable ? "ready" : "unavailable",
+        },
+        { name: "diagnose-and-validate", result: diagnosis.validity },
+        { name: "apply-triage-update", result: "skipped: dry run" },
+      ],
+      severity: diagnosis.severity,
+      category: diagnosis.category,
+      disposition: diagnosis.disposition,
+      rewrite_mode: diagnosis.rewrite_mode,
+      validity: diagnosis.validity,
+      labels_proposed: diagnosis.labels_to_apply,
+      should_comment: diagnosis.should_comment,
+      should_update_issue: diagnosis.should_update_issue,
+      should_close: diagnosis.should_close,
+      labels_applied: [],
+      comment_posted: false,
+      title_updated: false,
+      body_updated: false,
+      issue_closed: false,
+      needs_human_review: diagnosis.needs_human_review,
+      summary: diagnosis.summary,
+      update_summary: "Skipped all GitHub mutations because this was a dry run.",
       evidence: diagnosis.evidence,
       bug_analysis: diagnosis.bug_analysis,
       gap_analysis: diagnosis.gap_analysis,
