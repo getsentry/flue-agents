@@ -751,8 +751,14 @@ async function runMemberCommentSuppressionFixture(
     },
   } as any);
 
-  assert.equal(result.outcome, "triaged");
+  assert.equal(result.outcome, fixture.expectedTriage.outcome ?? "triaged");
   assert.equal(result.comment_posted, fixture.expectedTriage.comment_posted);
+  if (fixture.expectedTriage.validation_error) {
+    assert.match(
+      result.validation_error,
+      fixture.expectedTriage.validation_error,
+    );
+  }
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
@@ -776,6 +782,19 @@ async function runMemberCommentSuppressionFixture(
     );
   }
 }
+
+test("preserves diagnoses that fail semantic validation without mutating issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.modelDiagnosis = {
+    should_update_issue: true,
+    proposed_body: undefined,
+  };
+  fixture.expectedTriage.outcome = "needs_human_review";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.validation_error = /proposed_body/;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
 
 test("suppresses low-value actionable comments on member feature requests", async (t) => {
   await runMemberCommentSuppressionFixture(t, await readMemberActionableFixture());
