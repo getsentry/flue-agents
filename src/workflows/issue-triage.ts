@@ -903,6 +903,7 @@ export async function run({
     repository,
   );
   let diagnosis: Diagnosis;
+  let diagnosisValidationError: string | undefined;
   try {
     const response = await session.skill("issue-triage", {
       args: {
@@ -917,7 +918,17 @@ export async function run({
       signal: AbortSignal.timeout(900_000),
     });
     diagnosis = response.data;
-    assertDiagnosisAnalysis(diagnosis);
+    try {
+      assertDiagnosisAnalysis(diagnosis);
+    } catch (error) {
+      diagnosisValidationError =
+        error instanceof Error ? error.message : String(error);
+      log.warn("[issue-triage] Diagnosis failed semantic validation", {
+        issueNumber,
+        repository,
+        error: diagnosisValidationError,
+      });
+    }
     logInfo(log, "[issue-triage] Diagnosis completed", {
       issueNumber,
       repository,
@@ -925,7 +936,9 @@ export async function run({
       category: diagnosis.category,
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
-      needsHumanReview: diagnosis.needs_human_review,
+      needsHumanReview:
+        diagnosis.needs_human_review || diagnosisValidationError !== undefined,
+      validationError: diagnosisValidationError,
       shouldClose: diagnosis.should_close ?? false,
     });
   } catch (error) {
@@ -1000,10 +1013,47 @@ export async function run({
       title_updated: false,
       body_updated: false,
       issue_closed: false,
-      needs_human_review: diagnosis.needs_human_review,
+      needs_human_review:
+        diagnosis.needs_human_review || diagnosisValidationError !== undefined,
       summary: diagnosis.summary,
-      update_summary: "Skipped all GitHub mutations because this was a dry run.",
+      update_summary: diagnosisValidationError
+        ? "Skipped all GitHub mutations because this was a dry run; the proposed diagnosis also requires human review after failing semantic validation."
+        : "Skipped all GitHub mutations because this was a dry run.",
       evidence: diagnosis.evidence,
+      validation_error: diagnosisValidationError,
+      bug_analysis: diagnosis.bug_analysis,
+      gap_analysis: diagnosis.gap_analysis,
+    };
+  }
+
+  if (diagnosisValidationError) {
+    return {
+      outcome: "needs_human_review",
+      steps: [
+        { name: "search-duplicates", result: duplicateSearch.status },
+        {
+          name: "prepare-repository",
+          result: repositoryContext.checkoutAvailable ? "ready" : "unavailable",
+        },
+        { name: "diagnose-and-validate", result: "failed semantic validation" },
+        { name: "apply-triage-update", result: "skipped: invalid diagnosis" },
+      ],
+      severity: diagnosis.severity,
+      category: diagnosis.category,
+      disposition: diagnosis.disposition,
+      rewrite_mode: diagnosis.rewrite_mode,
+      validity: diagnosis.validity,
+      labels_applied: [],
+      comment_posted: false,
+      title_updated: false,
+      body_updated: false,
+      issue_closed: false,
+      needs_human_review: true,
+      summary: diagnosis.summary,
+      update_summary:
+        "Skipped triage mutations because the proposed diagnosis failed semantic validation.",
+      evidence: diagnosis.evidence,
+      validation_error: diagnosisValidationError,
       bug_analysis: diagnosis.bug_analysis,
       gap_analysis: diagnosis.gap_analysis,
     };

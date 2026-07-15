@@ -854,6 +854,23 @@ async function runMemberCommentSuppressionFixture(
         validity: "likely",
         summary: "The issue is already clear and actionable.",
         evidence: ["The reporter supplied the relevant context."],
+        gap_analysis: {
+          current_capability: "The requested behavior is not exposed today.",
+          desired_outcome: "Agents can use the requested behavior.",
+          gap: "The repository lacks the requested integration surface.",
+          affected_users: "MCP users",
+          workaround: null,
+          acceptance_criteria: ["Expose the requested behavior."],
+          constraints: [],
+          smallest_viable_slice: "Add the missing API wrapper.",
+          decision_type: "implementation",
+          evidence: [
+            {
+              source: "reporter",
+              claim: "The issue describes the missing integration surface.",
+            },
+          ],
+        },
         labels_to_apply: [],
         followup_kind: "scope_clarification",
         followup_rationale:
@@ -900,6 +917,9 @@ async function runMemberCommentSuppressionFixture(
     expectedNeedsHumanReview ? "needs_human_review" : "triaged",
   );
   assert.equal(result.comment_posted, fixture.expectedCommentPosted);
+  if (fixture.expectedValidationError) {
+    assert.match(result.validation_error, fixture.expectedValidationError);
+  }
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
@@ -932,6 +952,18 @@ async function runMemberCommentSuppressionFixture(
     );
   }
 }
+
+test("preserves diagnoses that fail semantic validation without mutating issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.modelDiagnosis = {
+    gap_analysis: undefined,
+  };
+  fixture.expectedNeedsHumanReview = true;
+  fixture.expectedCommentPosted = false;
+  fixture.expectedValidationError = /gap_analysis/;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
 
 test("suppresses low-value actionable comments on member feature requests", async (t) => {
   await runMemberCommentSuppressionFixture(t, await readMemberActionableFixture());
