@@ -5,6 +5,14 @@ import * as v from "valibot";
 
 import { issueTriageEvalDiagnosisSchema } from "../src/lib/issue-triage-eval.ts";
 import {
+  assertDiagnosisAnalysis,
+  type IssueTriageDiagnosis,
+} from "../src/lib/issue-triage-analysis.ts";
+import {
+  shouldCloseAsInvalidLowSignal,
+  shouldCloseAsSpam,
+} from "../src/lib/issue-triage-close-decision.ts";
+import {
   applyLabels,
   closeSpamIssue,
   PIERRE_INVALID_CLOSE_COMMENTS,
@@ -156,6 +164,51 @@ async function generateTestGitHubPrivateKey() {
   );
   return pemFromPkcs8(await crypto.subtle.exportKey("pkcs8", key.privateKey));
 }
+
+test("requires explicit closure approval", () => {
+  const diagnosis = {
+    disposition: "spam",
+    severity: "low",
+    category: "maintenance",
+    labels_to_apply: ["invalid"],
+    needs_human_review: false,
+  };
+  const context: IssueContext = {
+    issueNumber: 1,
+    issue: {},
+    labels: [{ name: "invalid" }],
+    fetchedAt: "2026-07-15T00:00:00Z",
+  };
+
+  assert.equal(shouldCloseAsSpam(diagnosis), false);
+  assert.equal(shouldCloseAsInvalidLowSignal(context, diagnosis), false);
+  assert.equal(shouldCloseAsSpam({ ...diagnosis, should_close: true }), true);
+});
+
+test("requires structured root cause and gap analysis", () => {
+  const base = {
+    severity: "medium",
+    category: "bug",
+    disposition: "actionable",
+    validity: "confirmed",
+    summary: "A bug exists.",
+    evidence: ["The source path proves the behavior."],
+    labels_to_apply: [],
+    should_close: false,
+    needs_human_review: false,
+  } as IssueTriageDiagnosis;
+
+  assert.throws(() => assertDiagnosisAnalysis(base), /bug_analysis/);
+  assert.throws(
+    () =>
+      assertDiagnosisAnalysis({
+        ...base,
+        category: "feature_request",
+        validity: "likely",
+      }),
+    /gap_analysis/,
+  );
+});
 
 test("keeps issue triage exposed only through the workflow route", async () => {
   const agentUrl = new URL("../src/agents/issue-triage.ts", import.meta.url);

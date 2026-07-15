@@ -89,13 +89,23 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
    - For stack traces, locate first-party frames and inspect the referenced code.
    - For docs/setup reports, inspect the referenced docs and scripts.
    - For feature requests, determine whether the repo already supports the requested behavior.
+   - Separate reporter claims, source facts, command output, history, and inference. Cite file paths and lines or symbols when available.
+   - For bugs, form at least one competing hypothesis when the cause is not direct. Test the cheapest discriminating evidence before settling on a cause.
+   - Check whether the available checkout matches the reported version, SHA, environment, configuration, and deployment mode. Record mismatches instead of treating default-branch behavior as decisive.
+   - For regressions, inspect relevant history, blame, commits, pull requests, changelog, or release notes when available.
 3. Validate as far as practical:
    - Run focused searches first.
    - Run targeted tests, typechecks, or package scripts only when they are directly relevant and reasonably scoped.
    - Do not run broad or destructive commands unless the repo documentation makes them the standard validation path.
    - If dependencies are missing or validation is too expensive, say so in `evidence` and mark validity conservatively.
-4. Cite related issues only when the connection is concrete. Use `#123` for same-repo issues.
-5. Decide the issue disposition:
+4. Build the category-specific analysis before deciding mutations.
+   - For bugs, return `bug_analysis` with observed and expected behavior, reproduction status/details, trigger, affected source locations, a stepwise causal chain, root cause (or null), provenance-tagged evidence, alternatives considered, fix direction, validation plan, and confidence.
+   - Do not use `validity: "confirmed"` unless the behavior was reproduced or direct code-path evidence proves the mechanism. Confirmed bugs require a non-empty root cause, causal chain, and structured evidence.
+   - Explain why existing tests or guards missed a confirmed regression when the repository provides enough evidence.
+   - For actionable or needs-more-info documentation, feature, support, and maintenance issues, return `gap_analysis`: current capability, desired user outcome, exact gap, affected users, workaround, acceptance criteria, constraints, smallest viable slice, decision type, and provenance-tagged evidence.
+   - Distinguish implementation gaps from documentation gaps, support/configuration problems, product decisions, and intentional non-goals.
+5. Cite related issues only when the connection is concrete. Use `#123` for same-repo issues.
+6. Decide the issue disposition:
    - `actionable`: enough detail exists for a maintainer to act.
    - `needs_more_info`: likely valid, but missing concrete repro, motivation, or acceptance criteria.
    - `low_actionability`: the request has a recognizable shape but little useful signal.
@@ -151,12 +161,14 @@ Return:
 - `disposition`: `actionable`, `needs_more_info`, `low_actionability`, `impractical_scope`, `spam`, or `unclear`
 - `validity`: `confirmed`, `likely`, `not_reproducible`, or `unclear`
 - `summary`: concise diagnosis
-- `evidence`: concrete observations and validation attempts
+- `evidence`: concrete observations and validation attempts; required and non-empty for `likely` or `confirmed`
+- `bug_analysis`: required when category is `bug`; include observed, expected, reproduction, trigger, affected locations, causal chain, root cause, provenance-tagged evidence, alternatives, fix direction, validation, and confidence
+- `gap_analysis`: required for actionable or needs-more-info documentation, feature, support, and maintenance issues; include current capability, desired outcome, exact gap, users, workaround, acceptance criteria, constraints, smallest slice, decision type, and provenance-tagged evidence
 - `labels_to_apply`: existing labels only
 - `followup_kind` when a comment is useful: `technical_diagnosis`, `scope_clarification`, or `missing_info_request`
 - `followup_rationale` when a comment is useful
 - `followup_comment` when a comment is useful; omit it otherwise
-- `should_close`: true only for clear spam or invalid low-signal issues that should be closed automatically
+- `should_close`: always return a boolean; true only for clear spam or invalid low-signal issues that should be closed automatically
 - `close_reason`: `not planned` when `should_close` is true
 - `close_comment` when `should_close` is true
 - `needs_human_review`: true for security-sensitive, high-risk, ambiguous, or destructive cases

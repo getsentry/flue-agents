@@ -1,28 +1,15 @@
 import * as v from "valibot";
 
 import {
+  assertDiagnosisAnalysis,
+  issueTriageDiagnosisSchema,
+  type IssueTriageDiagnosis,
+} from "./issue-triage-analysis.ts";
+import {
   shouldCloseAsInvalidLowSignal,
   shouldCloseAsSpam,
 } from "./issue-triage-close-decision.ts";
 
-const severitySchema = v.picklist(["low", "medium", "high", "critical"]);
-const categorySchema = v.picklist([
-  "bug",
-  "documentation",
-  "feature_request",
-  "support",
-  "security",
-  "maintenance",
-  "unknown",
-]);
-const dispositionSchema = v.picklist([
-  "actionable",
-  "needs_more_info",
-  "low_actionability",
-  "impractical_scope",
-  "spam",
-  "unclear",
-]);
 const closeReasonSchema = v.picklist(["not planned"]);
 const followupKindSchema = v.picklist([
   "technical_diagnosis",
@@ -30,40 +17,8 @@ const followupKindSchema = v.picklist([
   "missing_info_request",
 ]);
 
-export const issueTriageEvalDiagnosisSchema = v.pipe(
-  v.object({
-    severity: severitySchema,
-    category: categorySchema,
-    disposition: dispositionSchema,
-    validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
-    summary: v.string(),
-    evidence: v.array(v.string()),
-    labels_to_apply: v.array(v.string()),
-    followup_kind: v.optional(followupKindSchema),
-    followup_rationale: v.optional(v.pipe(v.string(), v.trim())),
-    followup_comment: v.optional(v.pipe(v.string(), v.trim())),
-    should_close: v.optional(v.boolean()),
-    close_reason: v.optional(closeReasonSchema),
-    close_comment: v.optional(v.string()),
-    needs_human_review: v.boolean(),
-  }),
-  v.transform((diagnosis) => {
-    if (
-      diagnosis.followup_kind !== undefined &&
-      diagnosis.followup_rationale &&
-      diagnosis.followup_comment
-    ) {
-      return diagnosis;
-    }
-
-    const normalized = { ...diagnosis };
-    delete normalized.followup_kind;
-    delete normalized.followup_rationale;
-    delete normalized.followup_comment;
-    return normalized;
-  }),
-);
-type Diagnosis = v.InferOutput<typeof issueTriageEvalDiagnosisSchema>;
+export const issueTriageEvalDiagnosisSchema = issueTriageDiagnosisSchema;
+type Diagnosis = IssueTriageDiagnosis;
 
 const authorAssociationSchema = v.picklist([
   "COLLABORATOR",
@@ -258,6 +213,11 @@ export async function runIssueTriageEval(
   });
   const diagnosis = response.data;
   const failures = evaluateDiagnosis(diagnosis, fixture);
+  try {
+    assertDiagnosisAnalysis(diagnosis);
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : String(error));
+  }
 
   return {
     scenario: `${fixture.source.repository}#${fixture.source.issueNumber}`,

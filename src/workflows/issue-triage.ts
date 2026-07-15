@@ -28,6 +28,12 @@ import {
   shellQuote,
 } from "../lib/issue-triage-github.ts";
 import {
+  assertDiagnosisAnalysis,
+  closeReasonSchema,
+  issueTriageDiagnosisSchema,
+  type IssueTriageDiagnosis,
+} from "../lib/issue-triage-analysis.ts";
+import {
   shouldCloseAsInvalidLowSignal,
   shouldCloseAsSpam,
 } from "../lib/issue-triage-close-decision.ts";
@@ -62,31 +68,6 @@ const payloadSchema = v.object({
   repository: v.optional(repositorySchema),
 });
 
-const severitySchema = v.picklist(["low", "medium", "high", "critical"]);
-const categorySchema = v.picklist([
-  "bug",
-  "documentation",
-  "feature_request",
-  "support",
-  "security",
-  "maintenance",
-  "unknown",
-]);
-const dispositionSchema = v.picklist([
-  "actionable",
-  "needs_more_info",
-  "low_actionability",
-  "impractical_scope",
-  "spam",
-  "unclear",
-]);
-const closeReasonSchema = v.picklist(["not planned"]);
-const followupKindSchema = v.picklist([
-  "technical_diagnosis",
-  "scope_clarification",
-  "missing_info_request",
-]);
-
 const duplicateCandidateSchema = v.object({
   number: v.pipe(v.number(), v.integer(), v.minValue(1)),
   title: v.string(),
@@ -106,40 +87,8 @@ type DuplicateSearch = v.InferOutput<typeof duplicateSearchSchema>;
 type DuplicateCandidate = v.InferOutput<typeof duplicateCandidateSchema>;
 type WorkflowLog = FlueContext<unknown, Env>["log"];
 
-const diagnosisSchema = v.pipe(
-  v.object({
-    severity: severitySchema,
-    category: categorySchema,
-    disposition: dispositionSchema,
-    validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
-    summary: v.string(),
-    evidence: v.array(v.string()),
-    labels_to_apply: v.array(v.string()),
-    followup_kind: v.optional(followupKindSchema),
-    followup_rationale: v.optional(v.pipe(v.string(), v.trim())),
-    followup_comment: v.optional(v.pipe(v.string(), v.trim())),
-    should_close: v.optional(v.boolean()),
-    close_reason: v.optional(closeReasonSchema),
-    close_comment: v.optional(v.string()),
-    needs_human_review: v.boolean(),
-  }),
-  v.transform((diagnosis) => {
-    if (
-      diagnosis.followup_kind !== undefined &&
-      diagnosis.followup_rationale &&
-      diagnosis.followup_comment
-    ) {
-      return diagnosis;
-    }
-
-    const normalized = { ...diagnosis };
-    delete normalized.followup_kind;
-    delete normalized.followup_rationale;
-    delete normalized.followup_comment;
-    return normalized;
-  }),
-);
-type Diagnosis = v.InferOutput<typeof diagnosisSchema>;
+const diagnosisSchema = issueTriageDiagnosisSchema;
+type Diagnosis = IssueTriageDiagnosis;
 
 const updateSchema = v.object({
   title_updated: v.boolean(),
@@ -327,6 +276,7 @@ function buildDiagnosisFailure(error: unknown): Diagnosis {
       "Automated triage could not complete, so the issue is left unchanged for maintainer review.",
     evidence: [summarizeAgentFailure(error)],
     labels_to_apply: [],
+    should_close: false,
     needs_human_review: true,
   };
 }
@@ -336,6 +286,28 @@ function getIssueState(context: IssueContext) {
     return null;
   }
   return context.issue.state.toLowerCase();
+}
+
+function issueSnapshot(context: IssueContext) {
+  if (!isRecord(context.issue)) {
+    return "";
+  }
+
+  const labels = Array.isArray(context.issue.labels)
+    ? context.issue.labels
+        .map((label) =>
+          isRecord(label) && typeof label.name === "string" ? label.name : label,
+        )
+        .sort()
+    : context.issue.labels;
+
+  return JSON.stringify({
+    title: context.issue.title,
+    body: context.issue.body,
+    state: context.issue.state,
+    labels,
+    comments: context.issue.comments,
+  });
 }
 
 function getIssueAuthorAssociation(context: IssueContext) {
@@ -519,6 +491,22 @@ async function applyTriageUpdate(
       issue_closed: false,
       needs_human_review: true,
       summary: "Skipped triage update because the issue is already closed.",
+    };
+  }
+
+  if (
+    diagnosis.category === "security" ||
+    diagnosis.severity === "critical"
+  ) {
+    return {
+      title_updated: false,
+      body_updated: false,
+      labels_applied: [],
+      comment_posted: false,
+      issue_closed: false,
+      needs_human_review: true,
+      summary:
+        "Skipped public mutations because the issue is security-sensitive or critical.",
     };
   }
 
@@ -908,6 +896,7 @@ export async function run({
       signal: AbortSignal.timeout(900_000),
     });
     diagnosis = response.data;
+    assertDiagnosisAnalysis(diagnosis);
     logInfo(log, "[issue-triage] Diagnosis completed", {
       issueNumber,
       repository,
@@ -933,6 +922,37 @@ export async function run({
     issueNumber,
     repository,
   );
+  if (issueSnapshot(diagnosisContext) !== issueSnapshot(updateContext)) {
+    return {
+      outcome: "needs_human_review",
+      steps: [
+        { name: "search-duplicates", result: duplicateSearch.status },
+        {
+          name: "prepare-repository",
+          result: repositoryContext.checkoutAvailable ? "ready" : "unavailable",
+        },
+        { name: "diagnose-and-validate", result: diagnosis.validity },
+        { name: "apply-triage-update", result: "skipped: issue changed" },
+      ],
+      severity: diagnosis.severity,
+      category: diagnosis.category,
+      disposition: diagnosis.disposition,
+      validity: diagnosis.validity,
+      labels_applied: [],
+      comment_posted: false,
+      title_updated: false,
+      body_updated: false,
+      issue_closed: false,
+      needs_human_review: true,
+      summary: diagnosis.summary,
+      update_summary:
+        "Skipped triage mutations because the issue changed during analysis.",
+      evidence: diagnosis.evidence,
+      bug_analysis: diagnosis.bug_analysis,
+      gap_analysis: diagnosis.gap_analysis,
+    };
+  }
+
   const update = await applyTriageUpdate(
     session,
     commandEnv,
@@ -981,6 +1001,10 @@ export async function run({
     closure_kind: update.closure_kind,
     close_reason: update.close_reason,
     needs_human_review: update.needs_human_review,
-    summary: update.summary,
+    summary: diagnosis.summary,
+    update_summary: update.summary,
+    evidence: diagnosis.evidence,
+    bug_analysis: diagnosis.bug_analysis,
+    gap_analysis: diagnosis.gap_analysis,
   };
 }
