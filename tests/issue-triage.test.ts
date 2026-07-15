@@ -838,7 +838,7 @@ async function runMemberCommentSuppressionFixture(
     ) => {
       if (options.args?.stage === "search-duplicates") {
         return {
-          data: {
+          data: fixture.duplicateSearch ?? {
             status: "unique",
             candidates: [],
             rationale: "No duplicate candidates matched.",
@@ -899,6 +899,7 @@ async function runMemberCommentSuppressionFixture(
     payload: {
       issueNumber: fixture.source.issueNumber,
       repository: fixture.source.repository,
+      dryRun: fixture.dryRun,
     },
     env: {
       GITHUB_APP_CLIENT_ID: "Iv1.test",
@@ -919,6 +920,10 @@ async function runMemberCommentSuppressionFixture(
   assert.equal(result.comment_posted, fixture.expectedCommentPosted);
   if (fixture.expectedValidationError) {
     assert.match(result.validation_error, fixture.expectedValidationError);
+  }
+  if (fixture.expectedTriage.duplicate) {
+    assert.deepEqual(result.duplicate, fixture.expectedTriage.duplicate);
+    assert.ok(result.gap_analysis);
   }
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
@@ -952,6 +957,30 @@ async function runMemberCommentSuppressionFixture(
     );
   }
 }
+
+test("runs full diagnosis for duplicate dry runs without mutating issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/sentry-mcp/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  fixture.dryRun = true;
+  fixture.duplicateSearch = {
+    status: "duplicate",
+    duplicate,
+    candidates: [duplicate],
+    rationale: "The reports describe the same request.",
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.duplicate = duplicate;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
 
 test("preserves diagnoses that fail semantic validation without mutating issues", async (t) => {
   const fixture = await readMemberActionableFixture();
