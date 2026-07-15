@@ -3,6 +3,14 @@ import { readFile } from "node:fs/promises";
 import test, { mock, type TestContext } from "node:test";
 
 import {
+  assertDiagnosisAnalysis,
+  type IssueTriageDiagnosis,
+} from "../src/lib/issue-triage-analysis.ts";
+import {
+  shouldCloseAsInvalidLowSignal,
+  shouldCloseAsSpam,
+} from "../src/lib/issue-triage-close-decision.ts";
+import {
   applyLabels,
   closeSpamIssue,
   PIERRE_INVALID_CLOSE_COMMENTS,
@@ -100,6 +108,54 @@ async function generateTestGitHubPrivateKey() {
   );
   return pemFromPkcs8(await crypto.subtle.exportKey("pkcs8", key.privateKey));
 }
+
+test("requires explicit closure approval", () => {
+  const diagnosis = {
+    disposition: "spam",
+    severity: "low",
+    category: "maintenance",
+    labels_to_apply: ["invalid"],
+    needs_human_review: false,
+  };
+  const context: IssueContext = {
+    issueNumber: 1,
+    issue: {},
+    labels: [{ name: "invalid" }],
+    fetchedAt: "2026-07-15T00:00:00Z",
+  };
+
+  assert.equal(shouldCloseAsSpam(diagnosis), false);
+  assert.equal(shouldCloseAsInvalidLowSignal(context, diagnosis), false);
+  assert.equal(shouldCloseAsSpam({ ...diagnosis, should_close: true }), true);
+});
+
+test("requires structured root cause and gap analysis", () => {
+  const base = {
+    severity: "medium",
+    category: "bug",
+    disposition: "actionable",
+    rewrite_mode: "none",
+    validity: "confirmed",
+    summary: "A bug exists.",
+    evidence: ["The source path proves the behavior."],
+    labels_to_apply: [],
+    should_comment: false,
+    should_update_issue: false,
+    should_close: false,
+    needs_human_review: false,
+  } as IssueTriageDiagnosis;
+
+  assert.throws(() => assertDiagnosisAnalysis(base), /bug_analysis/);
+  assert.throws(
+    () =>
+      assertDiagnosisAnalysis({
+        ...base,
+        category: "feature_request",
+        validity: "likely",
+      }),
+    /gap_analysis/,
+  );
+});
 
 test("keeps issue triage exposed only through the workflow route", async () => {
   const agentUrl = new URL("../src/agents/issue-triage.ts", import.meta.url);
@@ -638,6 +694,23 @@ async function runMemberCommentSuppressionFixture(
           validity: "likely",
           summary: "The issue is already clear and actionable.",
           evidence: ["The reporter supplied the relevant context."],
+          gap_analysis: {
+            current_capability: "The requested behavior is not exposed today.",
+            desired_outcome: "Agents can use the requested behavior.",
+            gap: "The repository lacks the requested integration surface.",
+            affected_users: "MCP users",
+            workaround: null,
+            acceptance_criteria: ["Expose the requested behavior."],
+            constraints: [],
+            smallest_viable_slice: "Add the missing API wrapper.",
+            decision_type: "implementation",
+            evidence: [
+              {
+                source: "reporter",
+                claim: "The issue describes the missing integration surface.",
+              },
+            ],
+          },
           labels_to_apply: [],
           should_comment: true,
           comment_kind: "scope_note",

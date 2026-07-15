@@ -1,34 +1,15 @@
 import * as v from "valibot";
 
 import {
+  assertDiagnosisAnalysis,
+  issueTriageDiagnosisSchema,
+  type IssueTriageDiagnosis,
+} from "./issue-triage-analysis.ts";
+import {
   shouldCloseAsInvalidLowSignal,
   shouldCloseAsSpam,
 } from "./issue-triage-close-decision.ts";
 
-const severitySchema = v.picklist(["low", "medium", "high", "critical"]);
-const categorySchema = v.picklist([
-  "bug",
-  "documentation",
-  "feature_request",
-  "support",
-  "security",
-  "maintenance",
-  "unknown",
-]);
-const dispositionSchema = v.picklist([
-  "actionable",
-  "needs_more_info",
-  "low_actionability",
-  "impractical_scope",
-  "spam",
-  "unclear",
-]);
-const rewriteModeSchema = v.picklist([
-  "none",
-  "light_cleanup",
-  "technical_diagnosis",
-  "scope_clarification",
-]);
 const closeReasonSchema = v.picklist(["not planned"]);
 const commentKindSchema = v.picklist([
   "none",
@@ -40,29 +21,8 @@ const commentKindSchema = v.picklist([
   "closure_notice",
 ]);
 
-export const issueTriageEvalDiagnosisSchema = v.object({
-  severity: severitySchema,
-  category: categorySchema,
-  disposition: dispositionSchema,
-  rewrite_mode: rewriteModeSchema,
-  validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
-  summary: v.string(),
-  evidence: v.array(v.string()),
-  labels_to_apply: v.array(v.string()),
-  should_comment: v.boolean(),
-  comment_kind: v.optional(commentKindSchema),
-  comment_rationale: v.optional(v.string()),
-  should_update_issue: v.boolean(),
-  proposed_title: v.optional(v.string()),
-  proposed_body: v.optional(v.string()),
-  triage_comment: v.optional(v.string()),
-  update_comment: v.optional(v.string()),
-  should_close: v.optional(v.boolean()),
-  close_reason: v.optional(closeReasonSchema),
-  close_comment: v.optional(v.string()),
-  needs_human_review: v.boolean(),
-});
-type Diagnosis = v.InferOutput<typeof issueTriageEvalDiagnosisSchema>;
+export const issueTriageEvalDiagnosisSchema = issueTriageDiagnosisSchema;
+type Diagnosis = IssueTriageDiagnosis;
 
 const fixtureSchema = v.object({
   description: v.string(),
@@ -241,6 +201,11 @@ export async function runIssueTriageEval(
   });
   const diagnosis = response.data;
   const failures = evaluateDiagnosis(diagnosis, fixture);
+  try {
+    assertDiagnosisAnalysis(diagnosis);
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : String(error));
+  }
 
   return {
     scenario: `${fixture.source.repository}#${fixture.source.issueNumber}`,

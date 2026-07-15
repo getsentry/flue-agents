@@ -118,6 +118,15 @@ The agent SHALL return a structured diagnosis that classifies severity, category
 - **THEN** disposition is `actionable`
 - **AND** the diagnosis summarizes the concern and includes concrete evidence.
 
+#### Scenario: Bug root-cause analysis
+- **WHEN** the diagnosis category is `bug`
+- **THEN** it records observed and expected behavior, reproduction status, trigger, affected source locations, causal chain, root cause when known, provenance-tagged evidence, alternatives considered, fix direction, validation plan, and confidence
+- **AND** `confirmed` validity requires a root cause, causal chain, and structured evidence.
+
+#### Scenario: Non-bug gap analysis
+- **WHEN** a documentation, feature, support, or maintenance issue is actionable or needs more information
+- **THEN** it records the current capability, desired user outcome, exact gap, affected users, workaround, acceptance criteria, constraints, smallest viable slice, decision type, and provenance-tagged evidence.
+
 #### Scenario: Needs more information
 - **WHEN** the issue appears likely valid but lacks a concrete reproduction, motivation, or acceptance criteria
 - **THEN** disposition is `needs_more_info`
@@ -141,8 +150,13 @@ The agent SHALL return a structured diagnosis that classifies severity, category
 #### Scenario: Security-sensitive public output
 - **WHEN** the issue may contain sensitive vulnerability details, exploit steps, private data, or credential material
 - **THEN** the workflow does not automatically close the issue
-- **AND** any public comment or edit is minimal and does not amplify sensitive details
+- **AND** it does not automatically apply labels, edit the issue, or post a public comment
 - **AND** the result requires human review.
+
+#### Scenario: Issue changes during diagnosis
+- **WHEN** title, body, state, labels, comments, or update timestamp changes after diagnosis begins
+- **THEN** the workflow does not apply the stale diagnosis
+- **AND** it leaves the issue unchanged for human review.
 
 ### Requirement: Issue rewrite decisions
 The agent SHALL recommend issue title or body edits only when they preserve reporter-supplied facts and materially improve maintainer understanding.
@@ -187,7 +201,7 @@ The workflow SHALL apply only labels that already exist in the repository and SH
 The workflow SHALL automatically close only clear spam that passes deterministic safety checks.
 
 #### Scenario: Clear spam
-- **WHEN** the diagnosis sets `should_close` true with disposition `spam`, severity `low`, close reason `not planned`, non-security category, and no human review need
+- **WHEN** the diagnosis explicitly sets `should_close` true with disposition `spam`, severity `low`, close reason `not planned`, non-security category, and no human review need
 - **THEN** the workflow applies existing requested labels, posts a closing comment, and closes the issue as `not planned`.
 
 #### Scenario: Unsafe closure request

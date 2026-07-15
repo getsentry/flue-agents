@@ -419,7 +419,7 @@ export const PIERRE_SPAM_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This arrives dressed as an issue but contains only external promotion. Very avant-garde; still invalid. I'm closing it.",
+    "This arrives dressed as an issue but contains only external promotion. Very avant-garde; I'm closing it as invalid.",
   ].join("\n"),
 ] as const;
 
