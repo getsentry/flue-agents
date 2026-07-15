@@ -619,6 +619,7 @@ async function runMemberCommentSuppressionFixture(
     name,
     description: "Existing label",
   }));
+  let issueViewCount = 0;
   const issue = {
     title: fixture.issue.title,
     body: fixture.issue.body,
@@ -635,7 +636,16 @@ async function runMemberCommentSuppressionFixture(
       shellCalls.push({ command, env: options?.env });
 
       if (command.startsWith(`gh issue view ${fixture.source.issueNumber}`)) {
-        return { exitCode: 0, stdout: JSON.stringify(issue), stderr: "" };
+        issueViewCount += 1;
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify(
+            fixture.changeIssueDuringAnalysis && issueViewCount >= 3
+              ? { ...issue, updatedAt: "2026-07-15T22:30:00Z" }
+              : issue,
+          ),
+          stderr: "",
+        };
       }
 
       if (command.startsWith("gh api ")) {
@@ -764,6 +774,11 @@ async function runMemberCommentSuppressionFixture(
     assert.deepEqual(result.duplicate, fixture.expectedTriage.duplicate);
     assert.ok(result.gap_analysis);
   }
+  if (fixture.expectedTriage.issue_changed !== undefined) {
+    assert.equal(result.issue_changed, fixture.expectedTriage.issue_changed);
+    assert.equal(result.needs_human_review, true);
+    assert.deepEqual(result.labels_proposed, []);
+  }
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
@@ -787,6 +802,17 @@ async function runMemberCommentSuppressionFixture(
     );
   }
 }
+
+test("returns complete dry-run output when the issue changes during analysis", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.changeIssueDuringAnalysis = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
 
 test("runs full diagnosis for duplicate dry runs without mutating issues", async (t) => {
   const fixture = await readMemberActionableFixture();
