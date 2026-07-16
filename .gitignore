@@ -11,4 +11,5 @@ dist/
 !.env.example
 *.tsbuildinfo
 coverage/
+vitest-results.json
 .DS_Store

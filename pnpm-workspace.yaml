@@ -8,6 +8,8 @@ allowBuilds:
   sharp: true
   workerd: true
 minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - vitest-evals
 overrides:
   esbuild: 0.28.1
   hono: 4.12.25

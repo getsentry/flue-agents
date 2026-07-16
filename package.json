@@ -14,7 +14,7 @@
     "build:cloudflare": "pnpm run test && pnpm run typecheck && pnpm run build",
     "deploy": "pnpm run build && pnpm run deploy:cloudflare",
     "deploy:cloudflare": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy",
-    "evals": "node scripts/issue-triage-evals.mjs",
+    "evals": "vitest run --config vitest.evals.config.ts",
     "test": "node --test --experimental-strip-types --experimental-test-module-mocks tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -30,7 +30,10 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260615.1",
     "@flue/cli": "^0.11.1",
+    "dotenv": "17.4.2",
     "typescript": "^6.0.3",
+    "vitest": "4.1.7",
+    "vitest-evals": "0.14.0",
     "wrangler": "^4.100.0"
   },
   "pnpm": {
