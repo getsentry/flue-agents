@@ -984,6 +984,20 @@ test("returns complete dry-run output when the issue changes during analysis", a
   await runMemberCommentSuppressionFixture(t, fixture);
 });
 
+test("preserves semantic validation errors when the issue changes during analysis", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.changeIssueDuringAnalysis = true;
+  fixture.modelDiagnosis = {
+    should_update_issue: true,
+    proposed_body: undefined,
+  };
+  fixture.expectedTriage.outcome = "needs_human_review";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.validation_error = /proposed_body/;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
 test("runs full diagnosis for duplicate dry runs without mutating issues", async (t) => {
   const fixture = await readMemberActionableFixture();
   const duplicate = {

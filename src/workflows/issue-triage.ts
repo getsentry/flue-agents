@@ -976,6 +976,7 @@ export async function run({
       update_summary:
         "Skipped triage mutations because the issue changed during analysis.",
       evidence: diagnosis.evidence,
+      validation_error: diagnosisValidationError,
       bug_analysis: diagnosis.bug_analysis,
       gap_analysis: diagnosis.gap_analysis,
     };
