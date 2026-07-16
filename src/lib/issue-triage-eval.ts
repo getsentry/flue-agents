@@ -11,6 +11,29 @@ const followupKindSchema = v.picklist([
   "scope_clarification",
   "missing_info_request",
 ]);
+const analysisExpectationSchema = v.variant("kind", [
+  v.object({
+    kind: v.literal("bug"),
+    root_cause_includes: v.optional(v.array(v.string())),
+    min_causal_chain_steps: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(1)),
+    ),
+    min_structured_evidence: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(1)),
+    ),
+    confidence: v.optional(v.picklist(["low", "medium", "high"])),
+  }),
+  v.object({
+    kind: v.literal("gap"),
+    gap_includes: v.optional(v.array(v.string())),
+    min_acceptance_criteria: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(1)),
+    ),
+    min_structured_evidence: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(1)),
+    ),
+  }),
+]);
 
 export const issueTriageEvalDiagnosisSchema = issueTriageDiagnosisSchema;
 type Diagnosis = IssueTriageDiagnosis;
@@ -49,6 +72,7 @@ export const issueTriageEvalFixtureSchema = v.pipe(
       should_close: v.optional(v.boolean()),
       close_reason: v.optional(closeReasonSchema),
       needs_human_review: v.optional(v.boolean()),
+      analysis: v.optional(analysisExpectationSchema),
     }),
   }),
   v.check((fixture) => {
@@ -84,6 +108,92 @@ function addExactExpectation<T>(
 ) {
   if (expected !== undefined && actual !== expected) {
     failures.push(`${field}: expected ${String(expected)}, got ${String(actual)}`);
+  }
+}
+
+function includesTerms(value: string, terms: string[]) {
+  const normalized = value.toLowerCase();
+  return terms.filter((term) => !normalized.includes(term.toLowerCase()));
+}
+
+function evaluateAnalysisExpectation(
+  diagnosis: Diagnosis,
+  expected: IssueTriageEvalFixture["expectedTriage"]["analysis"],
+  failures: string[],
+) {
+  if (!expected) {
+    return;
+  }
+
+  if (expected.kind === "bug") {
+    const analysis = diagnosis.bug_analysis;
+    if (!analysis) {
+      failures.push("analysis: expected bug_analysis");
+      return;
+    }
+
+    const missingTerms = includesTerms(
+      [analysis.root_cause ?? "", ...analysis.causal_chain].join(" "),
+      expected.root_cause_includes ?? [],
+    );
+    if (missingTerms.length > 0) {
+      failures.push(
+        `bug_analysis: root cause or causal chain missing ${missingTerms.join(", ")}`,
+      );
+    }
+    if (
+      expected.min_causal_chain_steps !== undefined &&
+      analysis.causal_chain.length < expected.min_causal_chain_steps
+    ) {
+      failures.push(
+        `bug_analysis.causal_chain: expected at least ${expected.min_causal_chain_steps} steps, got ${analysis.causal_chain.length}`,
+      );
+    }
+    if (
+      expected.min_structured_evidence !== undefined &&
+      analysis.evidence.length < expected.min_structured_evidence
+    ) {
+      failures.push(
+        `bug_analysis.evidence: expected at least ${expected.min_structured_evidence} items, got ${analysis.evidence.length}`,
+      );
+    }
+    addExactExpectation(
+      failures,
+      "bug_analysis.confidence",
+      analysis.confidence,
+      expected.confidence,
+    );
+    return;
+  }
+
+  const analysis = diagnosis.gap_analysis;
+  if (!analysis) {
+    failures.push("analysis: expected gap_analysis");
+    return;
+  }
+
+  const missingTerms = includesTerms(
+    analysis.gap,
+    expected.gap_includes ?? [],
+  );
+  if (missingTerms.length > 0) {
+    failures.push(`gap_analysis.gap: missing ${missingTerms.join(", ")}`);
+  }
+  if (
+    expected.min_acceptance_criteria !== undefined &&
+    analysis.acceptance_criteria.length < expected.min_acceptance_criteria
+  ) {
+    failures.push(
+      `gap_analysis.acceptance_criteria: expected at least ${expected.min_acceptance_criteria} items, got ${analysis.acceptance_criteria.length}`,
+    );
+  }
+  if (
+    expected.min_structured_evidence !== undefined &&
+    analysis.evidence.length < expected.min_structured_evidence
+  ) {
+    failures.push(
+      `gap_analysis.evidence: expected at least ${expected.min_structured_evidence} items, got ${analysis.evidence.length}`,
+    );
   }
 }
 
@@ -131,6 +241,8 @@ function evaluateDiagnosis(
       failures.push(`labels_to_apply: expected to include ${label}`);
     }
   }
+
+  evaluateAnalysisExpectation(diagnosis, expected.analysis, failures);
 
   return failures;
 }
