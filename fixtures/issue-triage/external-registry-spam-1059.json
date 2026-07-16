@@ -15,7 +15,6 @@
   },
   "expectedTriage": {
     "labels_include": ["invalid"],
-    "should_update_issue": false,
     "should_close": true,
     "close_reason": "not planned",
     "needs_human_review": false

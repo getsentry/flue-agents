@@ -46,7 +46,7 @@ The workflow SHALL fetch the current GitHub issue snapshot and repository labels
 - **THEN** GitHub commands operate against the session's current GitHub repository context.
 
 #### Scenario: Mutation uses fresh issue state
-- **WHEN** the workflow is ready to apply a duplicate closure, spam closure, label, comment, title edit, or body edit
+- **WHEN** the workflow is ready to apply a duplicate closure, spam closure, label or comment
 - **THEN** it uses a freshly fetched issue context for that mutation decision.
 
 ### Requirement: Duplicate search stage
@@ -111,7 +111,7 @@ The agent SHALL diagnose and validate non-duplicate issues using repository cont
 - **AND** marks validity conservatively.
 
 ### Requirement: Diagnosis structured output
-The agent SHALL return a structured diagnosis that classifies severity, category, disposition, rewrite mode, validity, evidence, labels, mutation recommendations, comments, closure requests, and human-review needs.
+The agent SHALL return a structured diagnosis that classifies severity, category, disposition, validity, evidence, labels, one optional follow-up comment with kind and rationale, closure requests, and human-review needs.
 
 #### Scenario: Actionable diagnosis
 - **WHEN** the issue contains enough detail for a maintainer to act
@@ -144,32 +144,41 @@ The agent SHALL return a structured diagnosis that classifies severity, category
 - **AND** any public comment or edit is minimal and does not amplify sensitive details
 - **AND** the result requires human review.
 
-### Requirement: Issue rewrite decisions
-The agent SHALL recommend issue title or body edits only when they preserve reporter-supplied facts and materially improve maintainer understanding.
+### Requirement: Append-only reporter content
+The workflow SHALL preserve the reporter-authored issue title and description and SHALL express useful cleanup, diagnosis, clarification, or missing-information guidance only through at most one additive follow-up comment.
+
+#### Scenario: Reporter content remains unchanged
+- **WHEN** any non-duplicate diagnosis is applied
+- **THEN** the workflow does not run title or body edit commands
+- **AND** reports `title_updated: false` and `body_updated: false`.
 
 #### Scenario: Existing issue is clear
-- **WHEN** the current title and body are already clear and actionable
-- **THEN** `should_update_issue` is false
-- **AND** no rewrite is recommended just to add ceremony.
+- **WHEN** the current title and body are already clear and actionable and no concrete new evidence was found
+- **THEN** no follow-up comment is posted.
 
-#### Scenario: Issue needs technical diagnosis
-- **WHEN** a bug, documentation, setup, or API report benefits from repository evidence
-- **THEN** the rewrite mode may be `technical_diagnosis`
-- **AND** the proposed body includes only useful validation and concrete repository findings.
+#### Scenario: Formatting-only cleanup
+- **WHEN** the only possible improvement is formatting or light cleanup
+- **THEN** no follow-up comment is posted.
 
-#### Scenario: Low-signal issue remains low signal
-- **WHEN** the issue is one-line, vague, or low-signal
-- **THEN** the rewrite mode is `none` or a minimal `scope_clarification`
-- **AND** the proposed body, if any, keeps the missing context visible.
+#### Scenario: Technical diagnosis
+- **WHEN** repository investigation produces concrete findings that help maintainers act
+- **THEN** the diagnosis may include one `technical_diagnosis` follow-up comment
+- **AND** the comment gives a concise current read, concrete findings, and validation limits or missing information.
 
-#### Scenario: Body update comment
-- **WHEN** the workflow actually updates the issue body
-- **THEN** it posts an update comment from the diagnosis when provided
-- **AND** otherwise builds a concise comment matching the selected rewrite mode.
+#### Scenario: Scope clarification
+- **WHEN** the issue needs a narrower interpretation or a maintainer decision
+- **THEN** the diagnosis may include one `scope_clarification` follow-up comment
+- **AND** the comment states the interpretation and specific missing context or decision.
 
-#### Scenario: Body edit has no bot voice
-- **WHEN** the agent proposes an issue body replacement
-- **THEN** the body does not include greetings, bot identity, apologies, automation notes, or first-person narration from the bot.
+#### Scenario: Needs more information
+- **WHEN** focused reporter answers are required to continue
+- **THEN** the diagnosis may include one `missing_info_request` follow-up comment
+- **AND** the comment asks only the questions needed to move the issue forward.
+
+#### Scenario: Follow-up comment contract
+- **WHEN** a diagnosis includes a follow-up comment
+- **THEN** it also includes a follow-up kind and rationale
+- **AND** the comment adds actionable information instead of restating or fully rewriting the issue.
 
 ### Requirement: Label application guardrails
 The workflow SHALL apply only labels that already exist in the repository and SHALL ignore non-existent labels proposed by the agent.
@@ -228,7 +237,7 @@ The workflow SHALL not mutate issues that are already closed, including duplicat
 
 #### Scenario: Issue already closed
 - **WHEN** the fetched issue state is `closed`
-- **THEN** the workflow skips title edits, body edits, labels, comments, and closure
+- **THEN** the workflow skips labels, comments, and closure
 - **AND** returns a result indicating the update was skipped and human review is needed.
 
 ### Requirement: Agent failure fallback

@@ -1,6 +1,6 @@
 ---
 name: issue-triage
-description: Use when asked to triage newly opened GitHub issues, diagnose issue validity, search for duplicates, close confirmed duplicates, leave concise scope notes, or rewrite unclear issue descriptions.
+description: Use when asked to triage newly opened GitHub issues, diagnose issue validity, search for duplicates, close confirmed duplicates, or leave concise additive follow-up comments.
 ---
 
 # Issue Triage
@@ -79,7 +79,7 @@ Return:
 
 ## Stage: `diagnose-and-validate`
 
-Goal: diagnose, validate, decide whether to tighten the issue, and draft any short triage comment that should be posted.
+Goal: diagnose and validate the issue, then draft at most one additive follow-up comment when it provides actionable new information.
 
 If `repositoryContext.checkoutAvailable` is true, inspect code under `repositoryContext.repoPath`. Treat `duplicateSearch.candidates` as possible related tickets, not duplicates.
 
@@ -102,26 +102,20 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
    - `impractical_scope`: the request is broad enough that it needs a proposal, owner, migration plan, or product decision before normal issue triage makes sense.
    - `spam`: promotional, automated, or SEO/link-drop content that is not a repo bug, docs issue, support request, feature request, security report, or maintainer decision.
    - `unclear`: the concern cannot be identified.
-6. Choose the rewrite mode before drafting anything:
-   - `none`: leave the issue body alone. Use this for weak or low-signal reports when rewriting would launder them into a better-looking ticket than they are.
-   - `light_cleanup`: keep the reporter's actual request, remove noise, and make it easier to scan.
-   - `technical_diagnosis`: use only for bugs, docs, setup failures, or concrete API behavior where repository evidence matters.
-   - `scope_clarification`: use for broad feature or maintenance requests when a small rewrite helps show what is missing without over-professionalizing the ask.
-7. Decide whether the original ticket accurately describes the concern.
-   - Set `should_update_issue` to true when the current title/body is misleading, underspecified, hard to scan, or missing analysis that would help maintainers act.
-   - Do not rewrite just to add ceremony. If the report is already clear and actionable, leave it alone.
-   - Do not turn a one-line or low-signal request into a polished internal spec. Preserve the quality signal maintainers need to see.
-   - When updating, propose a clearer title only if the current title is generic or misleading.
-   - When updating, propose a full replacement body that keeps all relevant repro details, errors, links, and reporter-supplied facts.
-   - Also provide `update_comment`, a friendly comment the handler will post if the body actually changes.
-8. Decide whether to comment without editing:
-   - Set `should_comment` to true when the best next step is a short ask for missing context, a scope note for maintainer review, or a concise explanation that the request is not actionable as written.
-   - Set `should_comment` to false when the issue is already clear and actionable and the reporter is an `OWNER`, `MEMBER`, or `COLLABORATOR`.
-   - Set `should_comment` to false for praise-only or restatement comments such as "this is a thorough analysis", "the issue already covers the paths", "the recommended first slice is right", or "a maintainer can take it from here".
-   - For trusted reporters, only comment without editing when `comment_kind` is `missing_info_request` with a specific blocking ask, or `concrete_validation` with a repository finding that was not already present in the issue.
-   - Provide `triage_comment` when `should_comment` is true.
-   - When a comment is considered, set `comment_kind` to one of `none`, `missing_info_request`, `concrete_validation`, `scope_note`, `edit_notice`, `duplicate_notice`, or `closure_notice`, and explain the value in `comment_rationale`.
-   - Keep substantive broad/impractical feature requests open for human review unless duplicate status is confirmed by the duplicate stage.
+6. Decide whether an additive follow-up comment would help:
+   - Never propose or perform edits to the reporter's title or description. They remain the source of truth.
+   - Omit `followup_comment`, `followup_kind`, and `followup_rationale` when the issue is already clear and actionable and you found no concrete new evidence.
+   - Do not comment for formatting or light cleanup alone.
+   - Use `technical_diagnosis` for a concise current read, concrete repository findings, and validation limits or missing information.
+   - Use `scope_clarification` for a concise interpretation plus the specific missing context or decision.
+   - Use `missing_info_request` for a focused set of questions needed to move the issue forward.
+   - A follow-up must add actionable information; never restate or fully rewrite the issue in comment form.
+   - For trusted reporters, only use `missing_info_request` with a specific blocking ask or `technical_diagnosis` with repository evidence not already present in the issue.
+   - When a comment is useful, provide exactly one `followup_comment`, its `followup_kind`, and a concise `followup_rationale`.
+7. Keep substantive broad or impractical feature requests open for human review unless the duplicate stage confirmed a duplicate.
+8. Preserve uncertainty:
+   - Do not claim more confidence than the evidence supports.
+   - Record validation limitations in `evidence` and, when useful to the reporter, in the follow-up comment.
 9. Decide whether to close:
    - Set `should_close` to true for clear spam, automated external promotion, registry listing notifications, package-claim solicitations, SEO/link drops, or marketing outreach that has no repository maintenance action.
    - Also set `should_close` to true for obviously invalid low-signal issues that have no repository maintenance action, such as content-free rewrite requests or technology preferences with no concrete problem, affected users, expected benefit, acceptance criteria, migration plan, or maintenance owner.
@@ -130,92 +124,38 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
    - Do not close security reports, legal/ownership disputes, ambiguous partner/integration requests, substantive broad proposals, or anything needing human judgment.
    - Be decisive when the evidence is direct. Do not say a maintainer can decide whether to close a clear spam or invalid low-signal issue.
 
-### Low-Signal and Impractical Requests
+### Follow-up Comments
 
-Broad rewrites, architecture migrations, and "X would be better" requests need more restraint than normal feature requests. A request to rewrite this repository in another language is not automatically actionable just because the repository is in a different language today.
+Follow-up comments are additive notes, not replacement issue bodies. Keep them concise and use [Comment Voice](#comment-voice).
 
-For these issues:
+- Technical diagnosis: lead with the current read, list only concrete repository findings, and state validation limits.
+- Scope clarification: state the narrow interpretation and name the missing decision or context.
+- Missing information: ask a focused set of questions; avoid generic questionnaires.
+- Clear issue or formatting-only cleanup: stay silent unless concrete new evidence changes the maintainer's understanding.
+- Never repeat the complete report, manufacture acceptance criteria, or make reporter-authored claims on the reporter's behalf.
 
-- Do not inventory the whole repository unless it changes the decision.
-- Do not add `Findings` that merely prove the repo uses its current stack.
-- Do not use `technical_diagnosis` unless there is a concrete technical claim to validate.
-- Prefer `rewrite_mode: "none"` plus a short `triage_comment`, `rewrite_mode: "scope_clarification"` with a very small body, or `should_close: true` when the request is content-free enough to be invalid rather than merely broad.
-- Ask for the missing problem statement, affected users, current-stack limitation, expected benefit, migration plan, and maintenance owner only when that would help.
-
-For example, a report like "rewrite this in Python" with body "python is good" should not become a full ticket with repository architecture findings. A better body, if editing is useful at all, is:
+Example technical diagnosis:
 
 ```md
-Request to rewrite Sentry MCP in Python.
+I found one repo detail that narrows this down:
 
-This needs a concrete problem with the current TypeScript/Node implementation before maintainers can act on it. Useful next details: user impact, expected benefit, migration plan, and owner.
+- `packages/foo/src/bar.ts` handles the failing path, but does not cover the reported configuration.
+- I could not validate the full behavior without the exact config value.
 ```
 
-### Issue Body
-
-- No greeting, no bot voice, no apology, no "I checked", and no automation note.
-- Lead with the concrete concern and current understanding. For low-signal issues, keep that low signal visible.
-- Prefer short sections and bullets. Use no headings for very small issues. Do not force `Next Steps` when another section, or no section, fits better.
-- Include validation only when it is useful to the issue.
-- Only include validation for concrete bug/docs/setup/API claims. For broad scope requests, say what is missing instead of pretending a technical validation happened.
-- Fill gaps from repository analysis, but do not invent facts or confidence.
-- Preserve important original details inline instead of hiding them in a long footer.
-- Do not add empty sections, placeholders, or a full "original report" archive unless that is the only practical way to avoid losing important context.
-
-Choose sections based on the issue:
-
-- `## Summary` for a short restatement when the issue needs framing.
-- `## Reproduction` for concrete bug reports with steps, commands, inputs, or observed/expected behavior.
-- `## Findings` for real repository or API evidence, not generic facts like "this repo uses TypeScript."
-- `## Missing Context` for vague requests or support reports that need specific details.
-- `## Scope` for broad feature or maintenance requests where feasibility is the main concern.
-- `## Related` for concrete same-repo issue links.
-
-For small issues, use a compact body without headings:
-
-```md
-[One or two sentences stating the ask and current confidence.]
-
-[Optional second paragraph with the single most important missing detail or maintainer-facing note.]
-```
-
-### Update Comment
-
-When `should_update_issue` is true, draft `update_comment` using [Comment Voice](#comment-voice). Match the edit: mention light cleanup, scope clarification, or technical findings only when that is what changed.
-
-Example:
-
-```md
-Hi, I'm Pierre!
-
-I cleaned this up so the concrete failure no longer has to compete with the scenery.
-
-What I checked:
-- `packages/foo/src/bar.ts` has the code path mentioned in the stack trace.
-- I could not run the full test because the report is missing the exact config value.
-
-A maintainer can take it from here.
-```
-
-The example includes the introduction because it assumes a `FIRST_TIMER` or `FIRST_TIME_CONTRIBUTOR`. Omit the first line for every other association.
 
 Return:
 
 - `severity`: `low`, `medium`, `high`, or `critical`
 - `category`: `bug`, `documentation`, `feature_request`, `support`, `security`, `maintenance`, or `unknown`
 - `disposition`: `actionable`, `needs_more_info`, `low_actionability`, `impractical_scope`, `spam`, or `unclear`
-- `rewrite_mode`: `none`, `light_cleanup`, `technical_diagnosis`, or `scope_clarification`
 - `validity`: `confirmed`, `likely`, `not_reproducible`, or `unclear`
 - `summary`: concise diagnosis
 - `evidence`: concrete observations and validation attempts
 - `labels_to_apply`: existing labels only
-- `should_comment`
-- `comment_kind` when useful: `none`, `missing_info_request`, `concrete_validation`, `scope_note`, `edit_notice`, `duplicate_notice`, or `closure_notice`
-- `comment_rationale` when `should_comment` is true
-- `should_update_issue`
-- `proposed_title` when a clearer title is needed
-- `proposed_body` when `should_update_issue` is true
-- `triage_comment` when `should_comment` is true
-- `update_comment` when `should_update_issue` is true
+- `followup_kind` when a comment is useful: `technical_diagnosis`, `scope_clarification`, or `missing_info_request`
+- `followup_rationale` when a comment is useful
+- `followup_comment` when a comment is useful; omit it otherwise
 - `should_close`: true only for clear spam or invalid low-signal issues that should be closed automatically
 - `close_reason`: `not planned` when `should_close` is true
 - `close_comment` when `should_close` is true
