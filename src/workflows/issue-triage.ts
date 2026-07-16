@@ -496,6 +496,7 @@ async function applyTriageUpdate(
   }
 
   if (
+    diagnosis.needs_human_review ||
     diagnosis.category === "security" ||
     diagnosis.severity === "critical"
   ) {
@@ -507,7 +508,7 @@ async function applyTriageUpdate(
       issue_closed: false,
       needs_human_review: true,
       summary:
-        "Skipped public mutations because the issue is security-sensitive or critical.",
+        "Skipped public mutations because the diagnosis requires human review, is security-sensitive, or is critical.",
     };
   }
 

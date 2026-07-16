@@ -940,6 +940,9 @@ async function runMemberCommentSuppressionFixture(
     assert.equal(result.needs_human_review, true);
     assert.deepEqual(result.labels_proposed, []);
   }
+  if (fixture.expectedTriage.outcome === "needs_human_review") {
+    assert.deepEqual(result.labels_applied, []);
+  }
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
@@ -1030,6 +1033,23 @@ test("preserves diagnoses that fail semantic validation without mutating issues"
   fixture.expectedNeedsHumanReview = true;
   fixture.expectedCommentPosted = false;
   fixture.expectedValidationError = /gap_analysis/;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("skips public mutations whenever diagnosis requires human review", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.modelDiagnosis = {
+    severity: "high",
+    labels_to_apply: ["enhancement"],
+    should_comment: true,
+    should_update_issue: true,
+    proposed_title: "Potentially sensitive report",
+    proposed_body: "Details that should not be published automatically.",
+    needs_human_review: true,
+  };
+  fixture.expectedTriage.outcome = "needs_human_review";
+  fixture.expectedTriage.comment_posted = false;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });
