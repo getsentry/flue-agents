@@ -315,7 +315,10 @@ test("closes external registry spam using the deterministic GitHub update path",
     ),
   );
   assert.match(commentBody, /promotion|outreach/);
-  assert.match(commentBody, /I'm closing (it|this) as invalid/);
+  assert.match(
+    commentBody,
+    /I'm closing (it|this) as invalid|still invalid\. I'm closing it/,
+  );
   assert.doesNotMatch(commentBody, /^Hi, I'm Pierre!/);
   assert.ok(
     Array.from(PIERRE_SPAM_CLOSE_COMMENTS).some((variant) =>
