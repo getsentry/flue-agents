@@ -1,6 +1,7 @@
 name: Evals
 
 permissions:
+  checks: write
   contents: read
 
 on:
@@ -40,3 +41,10 @@ jobs:
 
       - name: Run evals
         run: pnpm evals
+
+      - name: Publish eval report
+        if: always()
+        uses: getsentry/vitest-evals@v0
+        with:
+          results: vitest-results.json
+          publish-check: true

@@ -13,6 +13,7 @@
 |------|---------|
 | Install | `pnpm install` |
 | Test | `pnpm run test` |
+| Integration evals | `pnpm run evals` |
 | Typecheck | `pnpm run typecheck` |
 | Cloudflare dev | `pnpm run dev` |
 | Cloudflare build | `pnpm run build` |
@@ -23,6 +24,7 @@
 - Top-level Cloudflare Worker exports live in `src/cloudflare.ts`; Flue module-local `cloudflare = extend({ wrap })` descriptors stay beside the owning agent or workflow.
 - Packaged Flue skills live in `src/skills/<name>/` and are imported by agent modules.
 - Runtime secrets belong in `.env.local` locally or Wrangler secrets in production; never commit tokens.
+- Treat `vitest-evals` suites as integration tests. Keep cases fixture-driven and easy to extend; combine deterministic assertions with LLM judges through the eval harness.
 - GitHub issue triage requires GitHub App credentials: `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY`.
 - Sentry reporting uses `@sentry/cloudflare` through module-local Flue `cloudflare = extend({ wrap })` exports; keep shared Sentry option handling in `src/lib/sentry.ts`.
 - When adding agents or workflows, update docs as needed and append matching Durable Object migrations in `wrangler.jsonc`.
