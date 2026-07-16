@@ -1,4 +1,5 @@
 {
+  "name": "keeps clear member feature request silent and open",
   "description": "Real GitHub issue fixture for a clear member-authored feature request where Pierre should not post a restatement comment.",
   "source": {
     "repository": "getsentry/sentry-mcp",

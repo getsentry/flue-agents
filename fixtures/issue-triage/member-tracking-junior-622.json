@@ -1,4 +1,5 @@
 {
+  "name": "does not praise or restate detailed member tracking issue",
   "description": "Real GitHub issue fixture for a detailed member-authored tracking issue where Pierre should not post praise or restatement.",
   "source": {
     "repository": "getsentry/junior",

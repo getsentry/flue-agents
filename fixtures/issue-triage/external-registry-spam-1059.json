@@ -1,4 +1,5 @@
 {
+  "name": "closes automated external registry promotion as invalid",
   "description": "Real GitHub issue fixture for an automated external registry notification that the triage agent should close as invalid/spam instead of punting to a maintainer.",
   "source": {
     "repository": "getsentry/sentry-mcp",

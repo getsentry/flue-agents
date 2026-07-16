@@ -117,10 +117,10 @@ const fixtures = readdirSync(fixtureDir)
     } catch (error) {
       throw new Error(`Invalid issue-triage fixture ${file}`, { cause: error });
     }
-    return {
-      file,
-      name: file.replace(/\.json$/, ""),
-      fixture,
+      return {
+        file,
+        name: fixture.name,
+        fixture,
     };
   });
 

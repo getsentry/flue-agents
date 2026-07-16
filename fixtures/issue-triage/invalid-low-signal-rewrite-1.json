@@ -1,4 +1,5 @@
 {
+  "name": "closes content-free rewrite preference as invalid",
   "description": "Real GitHub issue fixture for a content-free rewrite request that should be closed as invalid low-signal instead of left open for maintainer review.",
   "source": {
     "repository": "getsentry/flue-agents",

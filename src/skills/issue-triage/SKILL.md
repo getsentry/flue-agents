@@ -133,6 +133,8 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
    - For invalid low-signal issues, use `severity: "low"`, `disposition: "low_actionability"` or `"impractical_scope"`, `labels_to_apply: ["invalid"]` when that label exists, `close_reason: "not planned"`, `needs_human_review: false`, and a concise `close_comment`.
    - Do not close security reports, legal/ownership disputes, ambiguous partner/integration requests, substantive broad proposals, or anything needing human judgment.
    - Be decisive when the evidence is direct. Do not say a maintainer can decide whether to close a clear spam or invalid low-signal issue.
+   - Before returning, verify the closure fields agree: clear spam or invalid low-signal content must have `should_close: true`, `close_reason: "not planned"`, and `needs_human_review: false`.
+   - Before returning on a clear trusted-reporter issue, verify that `should_comment: false` unless the comment contains a specific blocking ask or a new concrete repository finding.
 
 ### Follow-up Comments
 

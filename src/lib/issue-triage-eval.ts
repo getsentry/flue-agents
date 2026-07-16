@@ -51,6 +51,7 @@ const authorAssociationSchema = v.picklist([
 
 export const issueTriageEvalFixtureSchema = v.pipe(
   v.strictObject({
+    name: v.pipe(v.string(), v.minLength(1)),
     description: v.string(),
     source: v.strictObject({
       repository: v.string(),

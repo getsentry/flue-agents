@@ -1,5 +1,5 @@
 {
-  "name": "member-bug-rca-junior-804",
+  "name": "preserves evidence-backed causal chain for confirmed bug",
   "description": "Real GitHub issue fixture with a detailed, evidence-backed root cause. The diagnosis must preserve the causal chain instead of merely classifying the report as a bug.",
   "source": {
     "repository": "getsentry/junior",
