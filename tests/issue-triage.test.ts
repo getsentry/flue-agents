@@ -996,6 +996,7 @@ test("preserves semantic validation errors when the issue changes during analysi
   };
   fixture.expectedTriage.outcome = "needs_human_review";
   fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = true;
   fixture.expectedTriage.validation_error = /proposed_body/;
 
   await runMemberCommentSuppressionFixture(t, fixture);

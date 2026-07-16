@@ -968,6 +968,7 @@ export async function run({
       category: diagnosis.category,
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
+      labels_proposed: diagnosis.labels_to_apply,
       labels_applied: [],
       comment_posted: false,
       title_updated: false,
@@ -979,6 +980,7 @@ export async function run({
         "Skipped triage mutations because the issue changed during analysis.",
       evidence: diagnosis.evidence,
       validation_error: diagnosisValidationError,
+      issue_changed: true,
       bug_analysis: diagnosis.bug_analysis,
       gap_analysis: diagnosis.gap_analysis,
     };
