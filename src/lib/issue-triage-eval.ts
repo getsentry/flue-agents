@@ -5,11 +5,6 @@ import {
   issueTriageDiagnosisSchema,
   type IssueTriageDiagnosis,
 } from "./issue-triage-analysis.ts";
-import {
-  shouldCloseAsInvalidLowSignal,
-  shouldCloseAsSpam,
-} from "./issue-triage-close-decision.ts";
-
 const closeReasonSchema = v.picklist(["not planned"]);
 const followupKindSchema = v.picklist([
   "technical_diagnosis",
@@ -99,12 +94,6 @@ function evaluateDiagnosis(
   const expected = fixture.expectedTriage;
   const failures: string[] = [];
   const labels = expected.labels_include ?? [];
-  const inferredShouldClose =
-    shouldCloseAsSpam(diagnosis) ||
-    shouldCloseAsInvalidLowSignal(buildIssueContext(fixture), diagnosis);
-  const effectiveShouldClose = diagnosis.should_close ?? inferredShouldClose;
-  const effectiveCloseReason =
-    diagnosis.close_reason ?? (inferredShouldClose ? "not planned" : undefined);
 
   addExactExpectation(
     failures,
@@ -121,13 +110,13 @@ function evaluateDiagnosis(
   addExactExpectation(
     failures,
     "should_close",
-    effectiveShouldClose,
+    diagnosis.should_close,
     expected.should_close,
   );
   addExactExpectation(
     failures,
     "close_reason",
-    effectiveCloseReason,
+    diagnosis.close_reason,
     expected.close_reason,
   );
   addExactExpectation(
