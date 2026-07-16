@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect } from "vitest";
-import { createHarness, describeEval } from "vitest-evals";
+import { createHarness, createJudge, describeEval } from "vitest-evals";
 
 const rootPath = fileURLToPath(new URL("..", import.meta.url));
 const fixtureDir = join(rootPath, "fixtures/issue-triage");
@@ -140,6 +140,19 @@ if (fixtures.length === 0) {
 const { evalRoot, evalEnv } = createEvalRoot();
 process.on("exit", () => rmSync(evalRoot, { recursive: true, force: true }));
 
+const deterministicOutcomeJudge = createJudge<EvalFixture, EvalOutput>(
+  "DeterministicOutcomeJudge",
+  ({ output }) => ({
+    score: output.passed && output.failures.length === 0 ? 1 : 0,
+    metadata: {
+      rationale:
+        output.failures.length === 0
+          ? "All deterministic fixture assertions passed."
+          : output.failures.join("; "),
+    },
+  }),
+);
+
 const issueTriageHarness = createHarness<EvalFixture, EvalOutput>({
   name: "flue-issue-triage",
   run: async ({ input }) => {
@@ -207,5 +220,6 @@ describeEval("issue triage integration", { harness: issueTriageHarness }, (it) =
 
     expect(result.output.failures).toEqual([]);
     expect(result.output.passed).toBe(true);
+    await expect(result).toSatisfyJudge(deterministicOutcomeJudge);
   });
 });
