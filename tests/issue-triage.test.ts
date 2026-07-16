@@ -1334,6 +1334,122 @@ test("rejects GitHub App ID as an issuer fallback", async () => {
   assert.equal(initCalled, false);
 });
 
+test("returns a complete result after closing a duplicate", async (t) => {
+  mockModuleOnce("@flue/runtime/cloudflare", {
+    namedExports: {
+      extend: (descriptor: unknown) => descriptor,
+    },
+  });
+  mockModuleOnce("@sentry/cloudflare", {
+    namedExports: {
+      instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
+        Final,
+    },
+  });
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
+
+  const { run: runIssueTriageWorkflow } = await import(
+    "../src/workflows/issue-triage.ts"
+  );
+  const shellCalls: ShellCall[] = [];
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/example/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  const session = {
+    shell: async (command: string, options?: { env?: Record<string, string> }) => {
+      shellCalls.push({ command, env: options?.env });
+
+      if (command.startsWith("gh issue view 123")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            title: "Current issue",
+            body: "Same failure",
+            author: { login: "reporter" },
+            labels: [],
+            comments: [],
+            url: "https://github.com/getsentry/example/issues/123",
+            state: "open",
+            createdAt: "2026-06-15T00:00:00Z",
+            updatedAt: "2026-06-15T00:01:00Z",
+          }),
+          stderr: "",
+        };
+      }
+
+      if (command.startsWith("gh label list")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { name: "duplicate", description: "Duplicate issue" },
+          ]),
+          stderr: "",
+        };
+      }
+
+      if (command.startsWith("gh search issues")) {
+        return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
+      }
+
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+    fs: {
+      mkdir: async () => {},
+      writeFile: async () => {},
+      rm: async () => {},
+    },
+    skill: async () => ({
+      data: {
+        status: "duplicate",
+        duplicate,
+        candidates: [duplicate],
+        rationale: "The reports describe the same failure.",
+      },
+    }),
+  } as any;
+  const privateKey = await generateTestGitHubPrivateKey();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    mock.fn(async () => Response.json({ token: "workflow-installation-token" })),
+  );
+
+  const result = await runIssueTriageWorkflow({
+    init: async () => ({
+      session: async () => session,
+    }),
+    payload: {
+      issueNumber: 123,
+      repository: "getsentry/example",
+    },
+    env: {
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_INSTALLATION_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: privateKey,
+    },
+    log: {
+      warn: () => {},
+    },
+  } as any);
+
+  assert.equal(result.outcome, "duplicate_closed");
+  assert.equal(result.issue_closed, true);
+  assert.equal(result.needs_human_review, false);
+  assert.equal(result.comment_posted, true);
+  assert.deepEqual(result.labels_applied, ["duplicate"]);
+  assert.ok(shellCalls.some(({ command }) => command.startsWith("gh issue close")));
+});
+
 test("skips duplicate closure when the issue is already closed at mutation time", async (t) => {
   mockModuleOnce("@flue/runtime/cloudflare", {
     namedExports: {

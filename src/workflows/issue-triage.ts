@@ -872,6 +872,7 @@ export async function run({
         labels_applied: labelsApplied,
         comment_posted: true,
         issue_closed: true,
+        needs_human_review: false,
         summary: `Closed as a duplicate of #${duplicateSearch.duplicate.number}.`,
       };
     }
