@@ -157,6 +157,13 @@ I found one repo detail that narrows this down:
 - I could not validate the full behavior without the exact config value.
 ```
 
+A report like "rewrite this in Python" with body "python is good" is an
+obviously invalid low-signal preference, not a broad proposal to refine. Close
+it as `low_actionability` or `impractical_scope` with `should_close: true`,
+`close_reason: "not planned"`, and `needs_human_review: false`. Apply the
+existing `invalid` label and use only the concise `close_comment`; do not ask
+for more context, inventory the repository, or add a separate follow-up.
+
 
 Return:
 
