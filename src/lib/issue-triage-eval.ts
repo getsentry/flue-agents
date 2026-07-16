@@ -30,22 +30,35 @@ const followupKindSchema = v.picklist([
   "missing_info_request",
 ]);
 
-export const issueTriageEvalDiagnosisSchema = v.object({
-  severity: severitySchema,
-  category: categorySchema,
-  disposition: dispositionSchema,
-  validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
-  summary: v.string(),
-  evidence: v.array(v.string()),
-  labels_to_apply: v.array(v.string()),
-  followup_kind: v.optional(followupKindSchema),
-  followup_rationale: v.optional(v.string()),
-  followup_comment: v.optional(v.string()),
-  should_close: v.optional(v.boolean()),
-  close_reason: v.optional(closeReasonSchema),
-  close_comment: v.optional(v.string()),
-  needs_human_review: v.boolean(),
-});
+export const issueTriageEvalDiagnosisSchema = v.pipe(
+  v.object({
+    severity: severitySchema,
+    category: categorySchema,
+    disposition: dispositionSchema,
+    validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
+    summary: v.string(),
+    evidence: v.array(v.string()),
+    labels_to_apply: v.array(v.string()),
+    followup_kind: v.optional(followupKindSchema),
+    followup_rationale: v.optional(v.pipe(v.string(), v.trim(), v.nonEmpty())),
+    followup_comment: v.optional(v.pipe(v.string(), v.trim(), v.nonEmpty())),
+    should_close: v.optional(v.boolean()),
+    close_reason: v.optional(closeReasonSchema),
+    close_comment: v.optional(v.string()),
+    needs_human_review: v.boolean(),
+  }),
+  v.check((diagnosis) => {
+    const followup = [
+      diagnosis.followup_kind,
+      diagnosis.followup_rationale,
+      diagnosis.followup_comment,
+    ];
+    return (
+      followup.every((value) => value === undefined) ||
+      followup.every((value) => value !== undefined)
+    );
+  }, "Follow-up kind, rationale, and comment must be provided together."),
+);
 type Diagnosis = v.InferOutput<typeof issueTriageEvalDiagnosisSchema>;
 
 const authorAssociationSchema = v.picklist([

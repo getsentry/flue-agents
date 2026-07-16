@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test, { mock, type TestContext } from "node:test";
+import * as v from "valibot";
 
+import { issueTriageEvalDiagnosisSchema } from "../src/lib/issue-triage-eval.ts";
 import {
   applyLabels,
   closeSpamIssue,
@@ -17,6 +19,33 @@ type ShellCall = {
   command: string;
   env?: Record<string, string>;
 };
+
+const baseDiagnosis = {
+  severity: "low",
+  category: "feature_request",
+  disposition: "actionable",
+  validity: "likely",
+  summary: "Clear request.",
+  evidence: [],
+  labels_to_apply: [],
+  needs_human_review: false,
+} as const;
+
+test("requires complete follow-up metadata when a comment is present", () => {
+  const incomplete = v.safeParse(issueTriageEvalDiagnosisSchema, {
+    ...baseDiagnosis,
+    followup_comment: "I found a concrete repository detail.",
+  });
+  const complete = v.safeParse(issueTriageEvalDiagnosisSchema, {
+    ...baseDiagnosis,
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds repository evidence.",
+    followup_comment: "I found a concrete repository detail.",
+  });
+
+  assert.equal(incomplete.success, false);
+  assert.equal(complete.success, true);
+});
 
 function mockModuleOnce(
   specifier: string,
