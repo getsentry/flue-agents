@@ -129,12 +129,14 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
 9. Decide whether to close:
    - Set `should_close` to true for clear spam, automated external promotion, registry listing notifications, package-claim solicitations, SEO/link drops, or marketing outreach that has no repository maintenance action.
    - Also set `should_close` to true for obviously invalid low-signal issues that have no repository maintenance action, such as content-free rewrite requests or technology preferences with no concrete problem, affected users, expected benefit, acceptance criteria, migration plan, or maintenance owner.
-   - For spam, use `severity: "low"`, `disposition: "spam"`, `labels_to_apply: ["invalid"]` when that label exists, `close_reason: "not planned"`, `needs_human_review: false`, and a concise `close_comment`.
-   - For invalid low-signal issues, use `severity: "low"`, `disposition: "low_actionability"` or `"impractical_scope"`, `labels_to_apply: ["invalid"]` when that label exists, `close_reason: "not planned"`, `needs_human_review: false`, and a concise `close_comment`.
-   - Do not close security reports, legal/ownership disputes, ambiguous partner/integration requests, substantive broad proposals, or anything needing human judgment.
+   - For spam, use `severity: "low"`, `disposition: "spam"`, `labels_to_apply: ["invalid"]` when that label exists, `should_close: true`, `close_reason: "not planned"`, `needs_human_review: false`, and a concise `close_comment`.
+   - For invalid low-signal issues, use `severity: "low"`, `disposition: "low_actionability"` or `"impractical_scope"`, `labels_to_apply: ["invalid"]` when that label exists, `should_close: true`, `close_reason: "not planned"`, `needs_human_review: false`, and a concise `close_comment`.
+   - A notification offering to let maintainers claim an unsolicited external registry listing is still automated promotion, not a legal or repository-ownership dispute.
+   - Reporter trust does not make a content-free technology preference actionable. Close it as invalid even when the reporter is an `OWNER`, `MEMBER`, or `COLLABORATOR`.
+   - Do not close security reports, actual legal/ownership disputes, ambiguous partner/integration requests, substantive broad proposals, or anything needing human judgment.
    - Be decisive when the evidence is direct. Do not say a maintainer can decide whether to close a clear spam or invalid low-signal issue.
    - Before returning, verify the closure fields agree: clear spam or invalid low-signal content must have `should_close: true`, `close_reason: "not planned"`, and `needs_human_review: false`.
-   - Before returning on a clear trusted-reporter issue, verify that `should_comment: false` unless the comment contains a specific blocking ask or a new concrete repository finding.
+   - Before returning on a clear trusted-reporter issue that remains open, verify that `should_comment: false` unless the comment contains a specific blocking ask or a new concrete repository finding.
 
 ### Follow-up Comments
 

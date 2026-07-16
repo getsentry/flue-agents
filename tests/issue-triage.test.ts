@@ -210,6 +210,53 @@ test("requires structured root cause and gap analysis", () => {
   );
 });
 
+test("allows update comments to be generated when an issue body changes", () => {
+  const diagnosis = {
+    severity: "medium",
+    category: "feature_request",
+    disposition: "actionable",
+    rewrite_mode: "scope_clarification",
+    validity: "likely",
+    summary: "The request is actionable after a small scope clarification.",
+    evidence: ["The issue body identifies the requested capability."],
+    gap_analysis: {
+      current_capability: "The capability is not available.",
+      desired_outcome: "Expose the requested capability.",
+      gap: "No supported interface exposes it.",
+      affected_users: ["Users of the integration"],
+      workaround: null,
+      acceptance_criteria: ["The capability is available through the integration."],
+      constraints: [],
+      smallest_viable_slice: "Add one supported interface.",
+      decision_type: "implementation",
+      evidence: [
+        {
+          source: "issue",
+          claim: "The issue requests the missing capability.",
+          reference: "issue body",
+        },
+      ],
+    },
+    labels_to_apply: ["enhancement"],
+    should_comment: true,
+    should_update_issue: true,
+    proposed_body: "## Summary\n\nExpose the requested capability.",
+    should_close: false,
+    needs_human_review: false,
+  } as IssueTriageDiagnosis;
+
+  assert.doesNotThrow(() => assertDiagnosisAnalysis(diagnosis));
+  assert.throws(
+    () =>
+      assertDiagnosisAnalysis({
+        ...diagnosis,
+        should_update_issue: false,
+        proposed_body: undefined,
+      }),
+    /Standalone triage comments require triage_comment/,
+  );
+});
+
 test("keeps issue triage exposed only through the workflow route", async () => {
   const agentUrl = new URL("../src/agents/issue-triage.ts", import.meta.url);
   const workflowUrl = new URL("../src/workflows/issue-triage.ts", import.meta.url);
