@@ -74,7 +74,7 @@ function createEvalRoot() {
       `  thinkingLevel: "low",`,
       `  cwd: "/workspace",`,
       `  skills: [issueTriage],`,
-      `  instructions: \`Triage Sentry GitHub issues carefully. \${PIERRE_PERSONALITY} Use the issue-triage skill for duplicate search, diagnosis, validation, concise additive follow-up comments, and safe closure decisions. Never rewrite reporter-authored issue content.\`,`,
+      `  instructions: \`Triage Sentry GitHub issues carefully. \${PIERRE_PERSONALITY} Use the issue-triage skill for duplicate search, diagnosis, validation, concise additive follow-up comments, and safe closure decisions. Never rewrite reporter-authored issue content. Your structured response is machine-validated: when should_close is true, always set close_reason to not planned; for actionable documentation, feature, support, or maintenance issues, always include gap_analysis.\`,`,
       `}));`,
       ``,
     ].join("\n"),
