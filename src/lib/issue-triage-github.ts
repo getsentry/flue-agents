@@ -24,6 +24,7 @@ export type IssueContext = {
   issueNumber: number;
   repository?: string;
   reporter?: {
+    login?: string;
     association?: string;
     trusted?: boolean;
   };

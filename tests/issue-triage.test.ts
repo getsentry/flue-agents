@@ -333,6 +333,110 @@ test("closes external registry spam using the deterministic GitHub update path",
   );
 });
 
+test("ignores issues authored by github-actions before agent work", async (t) => {
+  mockModuleOnce("@flue/runtime/cloudflare", {
+    namedExports: {
+      extend: (descriptor: unknown) => descriptor,
+    },
+  });
+  mockModuleOnce("@sentry/cloudflare", {
+    namedExports: {
+      instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
+        Final,
+    },
+  });
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
+
+  const { run: runIssueTriageWorkflow } = await import(
+    "../src/workflows/issue-triage.ts"
+  );
+  const shellCalls: ShellCall[] = [];
+  let skillCallCount = 0;
+  const session = {
+    shell: async (command: string, options?: { env?: Record<string, string> }) => {
+      shellCalls.push({ command, env: options?.env });
+
+      if (command.startsWith("gh issue view 42")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            title: "Track pull request without a linked issue",
+            body: "Automatically generated tracking issue.",
+            author: { login: "github-actions[bot]" },
+            labels: [],
+            comments: [],
+            state: "open",
+          }),
+          stderr: "",
+        };
+      }
+
+      if (command.startsWith("gh api ")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ author_association: "CONTRIBUTOR" }),
+          stderr: "",
+        };
+      }
+
+      if (command.startsWith("gh label list")) {
+        return { exitCode: 0, stdout: "[]", stderr: "" };
+      }
+
+      throw new Error(`unexpected shell command: ${command}`);
+    },
+    skill: async () => {
+      skillCallCount += 1;
+      throw new Error("skill should not be called for ignored authors");
+    },
+  } as any;
+  const privateKey = await generateTestGitHubPrivateKey();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    mock.fn(async () => Response.json({ token: "workflow-installation-token" })),
+  );
+
+  const result = await runIssueTriageWorkflow({
+    init: async () => ({ session: async () => session }),
+    payload: {
+      issueNumber: 42,
+      repository: "getsentry/example",
+    },
+    env: {
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_INSTALLATION_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: privateKey,
+    },
+    log: {
+      info: () => {},
+      warn: () => {},
+    },
+  } as any);
+
+  assert.equal(result.outcome, "ignored");
+  assert.equal(result.reason, "ignored_author");
+  assert.equal(result.author_login, "github-actions[bot]");
+  assert.equal(result.comment_posted, false);
+  assert.equal(result.title_updated, false);
+  assert.equal(result.body_updated, false);
+  assert.equal(result.issue_closed, false);
+  assert.equal(skillCallCount, 0);
+  assert.equal(
+    shellCalls.some(({ command }) => command.startsWith("gh search issues")),
+    false,
+  );
+  assert.equal(
+    shellCalls.some(({ command }) => /gh issue (edit|comment|close)/.test(command)),
+    false,
+  );
+});
+
 test("closes invalid low-signal rewrite requests as not planned", async (t) => {
   const fixture = await readInvalidLowSignalFixture();
   mockModuleOnce("@flue/runtime/cloudflare", {

@@ -158,6 +158,29 @@ const TRUSTED_REPORTER_ASSOCIATIONS = new Set([
   "COLLABORATOR",
 ]);
 
+const IGNORED_AUTHOR_LOGINS = new Set(["github-actions[bot]"]);
+
+function normalizeAuthorLogin(value: string) {
+  const login = value.trim().toLowerCase();
+  return login === "github-actions" ? "github-actions[bot]" : login;
+}
+
+function getIssueAuthorLogin(context: IssueContext) {
+  if (!isRecord(context.issue)) {
+    return null;
+  }
+
+  for (const key of ["author", "user"] as const) {
+    const author = context.issue[key];
+    if (isRecord(author) && typeof author.login === "string") {
+      const login = normalizeAuthorLogin(author.login);
+      return login || null;
+    }
+  }
+
+  return null;
+}
+
 function normalizeAuthorAssociation(value: string) {
   const association = value.trim().toUpperCase();
   return association || null;
@@ -767,11 +790,16 @@ async function readIssueContext(
   if (repository) {
     context.repository = repository;
   }
-  if (reporterAssociation) {
-    context.reporter = {
-      association: reporterAssociation,
-      trusted: isTrustedAssociation(reporterAssociation),
-    };
+  const reporterLogin = getIssueAuthorLogin(context);
+  if (reporterLogin || reporterAssociation) {
+    context.reporter = {};
+    if (reporterLogin) {
+      context.reporter.login = reporterLogin;
+    }
+    if (reporterAssociation) {
+      context.reporter.association = reporterAssociation;
+      context.reporter.trusted = isTrustedAssociation(reporterAssociation);
+    }
   }
 
   return context;
@@ -875,6 +903,30 @@ export async function run({
     repository,
     issueState: getIssueState(initialContext) ?? "unknown",
   });
+
+  const authorLogin = initialContext.reporter?.login;
+  if (authorLogin && IGNORED_AUTHOR_LOGINS.has(authorLogin)) {
+    logInfo(log, "[issue-triage] Run ignored", {
+      issueNumber,
+      repository,
+      authorLogin,
+      reason: "ignored_author",
+    });
+    return {
+      outcome: "ignored",
+      reason: "ignored_author",
+      author_login: authorLogin,
+      steps: [{ name: "check-author", result: "ignored" }],
+      labels_applied: [],
+      comment_posted: false,
+      title_updated: false,
+      body_updated: false,
+      issue_closed: false,
+      needs_human_review: false,
+      summary: `Skipped triage for ignored author ${authorLogin}.`,
+    };
+  }
+
   let duplicateSearch: DuplicateSearch;
   try {
     const duplicateCandidates = await collectDuplicateCandidates(
