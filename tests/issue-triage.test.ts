@@ -6,6 +6,7 @@ import * as v from "valibot";
 import { issueTriageEvalDiagnosisSchema } from "../src/lib/issue-triage-eval.ts";
 import {
   assertDiagnosisAnalysis,
+  issueTriageDiagnosisSchema,
   type IssueTriageDiagnosis,
 } from "../src/lib/issue-triage-analysis.ts";
 import {
@@ -183,6 +184,26 @@ test("requires explicit closure approval", () => {
   assert.equal(shouldCloseAsSpam(diagnosis), false);
   assert.equal(shouldCloseAsInvalidLowSignal(context, diagnosis), false);
   assert.equal(shouldCloseAsSpam({ ...diagnosis, should_close: true }), true);
+});
+
+test("requires close_reason in structured output when closing", () => {
+  const result = v.safeParse(issueTriageDiagnosisSchema, {
+    severity: "low",
+    category: "maintenance",
+    disposition: "spam",
+    rewrite_mode: "none",
+    validity: "likely",
+    summary: "Automated external promotion.",
+    evidence: ["The issue says it was opened automatically."],
+    labels_to_apply: ["invalid"],
+    should_comment: false,
+    should_update_issue: false,
+    should_close: true,
+    close_comment: "Closing this automated promotion as not planned.",
+    needs_human_review: false,
+  });
+
+  assert.equal(result.success, false);
 });
 
 test("requires structured root cause and gap analysis", () => {
