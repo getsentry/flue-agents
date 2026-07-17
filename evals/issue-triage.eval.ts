@@ -27,6 +27,9 @@ import {
 
 const rootPath = fileURLToPath(new URL("..", import.meta.url));
 const fixtureDir = join(rootPath, "fixtures/issue-triage");
+const CASE_TIMEOUT_MS = 60_000;
+const SERVER_HOOK_TIMEOUT_MS = 90_000;
+const CLEANUP_TIMEOUT_MS = 10_000;
 const model =
   process.env.FLUE_TRIAGE_EVAL_MODEL ?? "openrouter/anthropic/claude-haiku-4.5";
 
@@ -151,7 +154,9 @@ aroundAll(
       }
     }
   },
-  80_000 + fixtures.length * 60_000,
+  SERVER_HOOK_TIMEOUT_MS +
+    fixtures.length * (SERVER_HOOK_TIMEOUT_MS + CASE_TIMEOUT_MS) +
+    CLEANUP_TIMEOUT_MS,
 );
 
 beforeEach(async () => {
@@ -159,7 +164,7 @@ beforeEach(async () => {
     throw new Error("Flue eval server has not started.");
   }
   await evalServer.ensureRunning();
-}, 70_000);
+}, SERVER_HOOK_TIMEOUT_MS);
 
 const deterministicOutcomeJudge = createJudge<IssueTriageEvalFixture, EvalOutput>(
   "DeterministicOutcomeJudge",
@@ -188,7 +193,7 @@ const issueTriageHarness = createFlueWorkflowHarness<
   },
   inputMessage: (input) => input.description,
   parseOutput: parseEvalOutput,
-  timeoutMs: 60_000,
+  timeoutMs: CASE_TIMEOUT_MS,
 });
 
 describeEval("issue triage integration", { harness: issueTriageHarness }, (it) => {
