@@ -27,7 +27,8 @@ const EVAL_SERVER_ENV_KEYS = [
 ] as const;
 
 type EvalServer = {
-  getBaseUrl: () => Promise<string>;
+  baseUrl: () => string;
+  ensureRunning: () => Promise<void>;
   stop: () => Promise<void>;
 };
 
@@ -207,7 +208,7 @@ export async function startFlueEvalServer(options: {
     return { baseUrl, child };
   };
 
-  const getBaseUrl = async () => {
+  const ensureRunning = async () => {
     if (stopped) {
       throw new Error("Flue eval server has already stopped.");
     }
@@ -215,7 +216,7 @@ export async function startFlueEvalServer(options: {
     if (current && !isTerminated(current.child)) {
       try {
         await fetch(current.baseUrl, { signal: AbortSignal.timeout(1_000) });
-        return current.baseUrl;
+        return;
       } catch {
         await stopChild(current.child);
         current = undefined;
@@ -225,16 +226,21 @@ export async function startFlueEvalServer(options: {
     startPromise ??= start();
     try {
       current = await startPromise;
-      return current.baseUrl;
     } finally {
       startPromise = undefined;
     }
   };
 
-  await getBaseUrl();
+  await ensureRunning();
 
   return {
-    getBaseUrl,
+    baseUrl: () => {
+      if (!current || isTerminated(current.child)) {
+        throw new Error("Flue eval server is not running.");
+      }
+      return current.baseUrl;
+    },
+    ensureRunning,
     stop: async () => {
       stopped = true;
       const pending = startPromise;

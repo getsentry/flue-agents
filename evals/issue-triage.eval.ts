@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { afterAll, beforeAll, expect } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
 import * as v from "valibot";
 
@@ -141,6 +141,13 @@ beforeAll(async () => {
   });
 }, 70_000);
 
+beforeEach(async () => {
+  if (!evalServer) {
+    throw new Error("Flue eval server has not started.");
+  }
+  await evalServer.ensureRunning();
+}, 70_000);
+
 afterAll(async () => {
   await evalServer?.stop();
   rmSync(evalRoot, { recursive: true, force: true });
@@ -169,7 +176,7 @@ const issueTriageHarness = createFlueWorkflowHarness<
     if (!evalServer) {
       throw new Error("Flue eval server has not started.");
     }
-    return evalServer.getBaseUrl();
+    return evalServer.baseUrl();
   },
   inputMessage: (input) => input.description,
   parseOutput: parseEvalOutput,
