@@ -24,6 +24,7 @@ export default createAgent<unknown, Env>(({ id, env }) => {
       env.FLUE_TRIAGE_EVAL_MODEL ??
       env.FLUE_TRIAGE_MODEL ??
       "cloudflare/@cf/moonshotai/kimi-k2.6",
+    thinkingLevel: "low",
     cwd: "/workspace",
     sandbox: sandboxNamespace
       ? {

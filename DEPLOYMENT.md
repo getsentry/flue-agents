@@ -12,10 +12,16 @@ Worker: sentry-flue-agents
 Settings: Builds
 Git repository: getsentry/flue-agents
 Git branch: main
+Non-production branch builds: disabled
 Root directory: /
 Build command: pnpm run build:cloudflare
 Deploy command: pnpm run deploy:cloudflare
 ```
+
+Keep non-production branch builds disabled. Pull-request validation already runs
+the Cloudflare build in GitHub Actions, while a Workers preview upload cannot
+apply production Durable Object lifecycle migrations. Stateful migrations are
+applied only by the production `wrangler deploy` after a change reaches `main`.
 
 The build command should be exactly `pnpm run build:cloudflare`. Workers Builds
 installs dependencies automatically, so do not prefix the command with
