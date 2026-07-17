@@ -31,7 +31,7 @@ fixture through `@flue/sdk`, and checks stable decision fields through
 pnpm evals
 ```
 
-`pnpm evals` defaults to `openrouter/moonshotai/kimi-k2.6`, so set
+`pnpm evals` defaults to `openrouter/anthropic/claude-haiku-4.5`, so set
 `OPENROUTER_API_KEY` in `.env.local` or your shell. The runner loads `.env`
 first, then `.env.local`, with shell variables winning over both. Evals only
 accept `openrouter/...` models; the production `cloudflare/...` model path is

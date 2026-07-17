@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { afterAll, beforeAll, beforeEach, expect } from "vitest";
+import { aroundAll, beforeEach, expect } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
 import * as v from "valibot";
 
@@ -28,7 +28,7 @@ import {
 const rootPath = fileURLToPath(new URL("..", import.meta.url));
 const fixtureDir = join(rootPath, "fixtures/issue-triage");
 const model =
-  process.env.FLUE_TRIAGE_EVAL_MODEL ?? "openrouter/moonshotai/kimi-k2.6";
+  process.env.FLUE_TRIAGE_EVAL_MODEL ?? "openrouter/anthropic/claude-haiku-4.5";
 
 const evalOutputSchema = v.strictObject({
   scenario: v.string(),
@@ -130,16 +130,29 @@ if (!process.env.OPENROUTER_API_KEY) {
   throw new Error("OPENROUTER_API_KEY is required to run integration evals.");
 }
 
-const { evalRoot, evalEnv } = createEvalRoot();
 let evalServer: Awaited<ReturnType<typeof startFlueEvalServer>> | undefined;
 
-beforeAll(async () => {
-  evalServer = await startFlueEvalServer({
-    cwd: rootPath,
-    root: evalRoot,
-    envFile: evalEnv,
-  });
-}, 70_000);
+aroundAll(
+  async (runSuite) => {
+    const { evalRoot, evalEnv } = createEvalRoot();
+    try {
+      evalServer = await startFlueEvalServer({
+        cwd: rootPath,
+        root: evalRoot,
+        envFile: evalEnv,
+      });
+      await runSuite();
+    } finally {
+      try {
+        await evalServer?.stop();
+      } finally {
+        evalServer = undefined;
+        rmSync(evalRoot, { recursive: true, force: true });
+      }
+    }
+  },
+  80_000 + fixtures.length * 60_000,
+);
 
 beforeEach(async () => {
   if (!evalServer) {
@@ -147,11 +160,6 @@ beforeEach(async () => {
   }
   await evalServer.ensureRunning();
 }, 70_000);
-
-afterAll(async () => {
-  await evalServer?.stop();
-  rmSync(evalRoot, { recursive: true, force: true });
-}, 10_000);
 
 const deterministicOutcomeJudge = createJudge<IssueTriageEvalFixture, EvalOutput>(
   "DeterministicOutcomeJudge",

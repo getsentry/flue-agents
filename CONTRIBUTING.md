@@ -78,13 +78,13 @@ Override it with `FLUE_TRIAGE_MODEL` in `.env.local` or as a Wrangler secret.
 
 Issue-triage evals run locally with Flue's Node target, so they use OpenRouter
 instead of the Cloudflare Workers AI binding. `pnpm evals` defaults to
-`openrouter/moonshotai/kimi-k2.6`, which requires `OPENROUTER_API_KEY`.
+`openrouter/anthropic/claude-haiku-4.5`, which requires `OPENROUTER_API_KEY`.
 
 Configure evals in `.env.local`; the runner loads `.env` first, then
 `.env.local`, with shell variables winning over both:
 
 ```env
-FLUE_TRIAGE_EVAL_MODEL="openrouter/moonshotai/kimi-k2.6"
+FLUE_TRIAGE_EVAL_MODEL="openrouter/anthropic/claude-haiku-4.5"
 OPENROUTER_API_KEY=""
 ```
 

@@ -139,7 +139,7 @@ async function stopChild(child: EvalServerProcess) {
   await Promise.race([closed, delay(5_000)]);
   if (!isTerminated(child)) {
     child.kill("SIGKILL");
-    await closed;
+    await Promise.race([closed, delay(5_000)]);
   }
 }
 
