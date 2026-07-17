@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -11,51 +10,37 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { expect } from "vitest";
-import { createHarness, createJudge, describeEval } from "vitest-evals";
+
+import { afterAll, beforeAll, expect } from "vitest";
+import { createJudge, describeEval } from "vitest-evals";
+import * as v from "valibot";
+
+import {
+  issueTriageEvalDiagnosisSchema,
+  parseIssueTriageEvalFixture,
+  type IssueTriageEvalFixture,
+} from "../src/lib/issue-triage-eval.ts";
+import {
+  createFlueWorkflowHarness,
+  startFlueEvalServer,
+} from "./flue-workflow-harness.ts";
 
 const rootPath = fileURLToPath(new URL("..", import.meta.url));
 const fixtureDir = join(rootPath, "fixtures/issue-triage");
 const model =
   process.env.FLUE_TRIAGE_EVAL_MODEL ?? "openrouter/moonshotai/kimi-k2.6";
 
-type EvalFixture = {
-  name?: string;
-  description: string;
-  source: {
-    repository: string;
-    issueNumber: number;
-  };
-  [key: string]: unknown;
-};
+const evalOutputSchema = v.strictObject({
+  scenario: v.string(),
+  description: v.string(),
+  passed: v.boolean(),
+  failures: v.array(v.string()),
+  diagnosis: issueTriageEvalDiagnosisSchema,
+});
+type EvalOutput = v.InferOutput<typeof evalOutputSchema>;
 
-type EvalOutput = {
-  scenario: string;
-  description: string;
-  passed: boolean;
-  failures: string[];
-  diagnosis: unknown;
-};
-
-function parseFlueRunOutput(stdout: string): EvalOutput {
-  const starts: number[] = [];
-  for (
-    let index = stdout.indexOf("{");
-    index !== -1;
-    index = stdout.indexOf("{", index + 1)
-  ) {
-    starts.push(index);
-  }
-
-  for (const start of starts.reverse()) {
-    try {
-      return JSON.parse(stdout.slice(start)) as EvalOutput;
-    } catch {
-      // Build logs can contain earlier JSON-looking fragments.
-    }
-  }
-
-  throw new Error("Could not parse flue run JSON result from stdout.");
+function parseEvalOutput(value: unknown): EvalOutput {
+  return v.parse(evalOutputSchema, value);
 }
 
 function createEvalRoot() {
@@ -92,8 +77,11 @@ function createEvalRoot() {
   writeFileSync(
     evalWorkflow,
     [
+      `import type { WorkflowRouteHandler } from "@flue/runtime";`,
       `import issueTriageAgent from "../agents/issue-triage.ts";`,
       `import { runIssueTriageEval } from ${JSON.stringify(pathToFileURL(join(rootPath, "src/lib/issue-triage-eval.ts")).href)};`,
+      ``,
+      `export const route: WorkflowRouteHandler = async (_c, next) => next();`,
       ``,
       `export async function run({ init, payload }) {`,
       `  return runIssueTriageEval(init, payload, issueTriageAgent);`,
@@ -112,23 +100,21 @@ function createEvalRoot() {
   return { evalRoot, evalEnv };
 }
 
-if (!model.startsWith("openrouter/")) {
-  throw new Error("FLUE_TRIAGE_EVAL_MODEL must use the openrouter/ provider.");
-}
-if (!process.env.OPENROUTER_API_KEY) {
-  throw new Error("OPENROUTER_API_KEY is required to run integration evals.");
-}
-
 const fixtures = readdirSync(fixtureDir)
   .filter((file) => file.endsWith(".json"))
   .sort()
   .map((file) => {
-    const fixture = JSON.parse(
-      readFileSync(join(fixtureDir, file), "utf8"),
-    ) as EvalFixture;
+    let fixture: IssueTriageEvalFixture;
+    try {
+      fixture = parseIssueTriageEvalFixture(
+        JSON.parse(readFileSync(join(fixtureDir, file), "utf8")),
+      );
+    } catch (error) {
+      throw new Error(`Invalid issue-triage fixture ${file}`, { cause: error });
+    }
     return {
       file,
-      name: fixture.name ?? file.replace(/\.json$/, ""),
+      name: file.replace(/\.json$/, ""),
       fixture,
     };
   });
@@ -136,11 +122,30 @@ const fixtures = readdirSync(fixtureDir)
 if (fixtures.length === 0) {
   throw new Error("No issue-triage integration fixtures found.");
 }
+if (!model.startsWith("openrouter/")) {
+  throw new Error("FLUE_TRIAGE_EVAL_MODEL must use the openrouter/ provider.");
+}
+if (!process.env.OPENROUTER_API_KEY) {
+  throw new Error("OPENROUTER_API_KEY is required to run integration evals.");
+}
 
 const { evalRoot, evalEnv } = createEvalRoot();
-process.on("exit", () => rmSync(evalRoot, { recursive: true, force: true }));
+let evalServer: Awaited<ReturnType<typeof startFlueEvalServer>> | undefined;
 
-const deterministicOutcomeJudge = createJudge<EvalFixture, EvalOutput>(
+beforeAll(async () => {
+  evalServer = await startFlueEvalServer({
+    cwd: rootPath,
+    root: evalRoot,
+    envFile: evalEnv,
+  });
+}, 60_000);
+
+afterAll(async () => {
+  await evalServer?.stop();
+  rmSync(evalRoot, { recursive: true, force: true });
+}, 10_000);
+
+const deterministicOutcomeJudge = createJudge<IssueTriageEvalFixture, EvalOutput>(
   "DeterministicOutcomeJudge",
   ({ output }) => ({
     score: output.passed && output.failures.length === 0 ? 1 : 0,
@@ -153,65 +158,21 @@ const deterministicOutcomeJudge = createJudge<EvalFixture, EvalOutput>(
   }),
 );
 
-const issueTriageHarness = createHarness<EvalFixture, EvalOutput>({
+const issueTriageHarness = createFlueWorkflowHarness<
+  IssueTriageEvalFixture,
+  EvalOutput
+>({
   name: "flue-issue-triage",
-  run: async ({ input }) => {
-    const result = spawnSync(
-      "pnpm",
-      [
-        "exec",
-        "flue",
-        "run",
-        "issue-triage-eval",
-        "--target",
-        "node",
-        "--root",
-        evalRoot,
-        "--env",
-        evalEnv,
-        "--payload",
-        JSON.stringify(input),
-      ],
-      {
-        cwd: rootPath,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          FLUE_TRIAGE_EVAL_MODEL: model,
-          FLUE_TRIAGE_MODEL: model,
-        },
-        maxBuffer: 20 * 1024 * 1024,
-      },
-    );
-
-    if (result.status !== 0) {
-      throw new Error(
-        `flue run exited ${result.status}: ${(result.stderr || result.stdout).trim()}`,
-      );
+  workflowName: "issue-triage-eval",
+  getBaseUrl: () => {
+    if (!evalServer) {
+      throw new Error("Flue eval server has not started.");
     }
-
-    const output = parseFlueRunOutput(result.stdout);
-    return {
-      events: [
-        {
-          type: "message",
-          role: "user",
-          content: input.description,
-        },
-        {
-          type: "message",
-          role: "assistant",
-          content: JSON.stringify(output.diagnosis),
-        },
-      ],
-      output,
-      artifacts: {
-        scenario: output.scenario,
-        diagnosis: output.diagnosis,
-      },
-      usage: {},
-    };
+    return evalServer.baseUrl;
   },
+  inputMessage: (input) => input.description,
+  parseOutput: parseEvalOutput,
+  timeoutMs: 60_000,
 });
 
 describeEval("issue triage integration", { harness: issueTriageHarness }, (it) => {

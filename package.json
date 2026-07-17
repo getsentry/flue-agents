@@ -21,7 +21,7 @@
   "dependencies": {
     "@cloudflare/sandbox": "^0.12.1",
     "@flue/github": "1.0.0-beta.1",
-    "@flue/runtime": "^0.11.1",
+    "@flue/runtime": "0.11.1",
     "@sentry/cloudflare": "^10.58.0",
     "agents": "^0.14.1",
     "hono": "4.12.25",
@@ -29,7 +29,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260615.1",
-    "@flue/cli": "^0.11.1",
+    "@flue/cli": "0.11.1",
+    "@flue/sdk": "0.11.1",
     "dotenv": "17.4.2",
     "typescript": "^6.0.3",
     "vitest": "4.1.7",

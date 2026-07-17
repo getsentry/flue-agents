@@ -3,14 +3,14 @@
   "source": {
     "repository": "getsentry/flue-agents",
     "issueNumber": 1,
-    "capturedAt": "2026-06-16T20:54:27Z",
-    "url": "https://github.com/getsentry/flue-agents/issues/1"
+    "capturedAt": "2026-06-16T20:54:27Z"
   },
+  "repositoryLabels": ["invalid"],
   "issue": {
     "author": "dcramer",
     "authorAssociation": "MEMBER",
     "title": "rewrite in python",
-    "labelsAtCapture": ["invalid"],
+    "labels": [],
     "body": "python is better than javascript"
   },
   "expectedTriage": {

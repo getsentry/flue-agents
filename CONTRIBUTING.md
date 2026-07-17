@@ -91,6 +91,43 @@ OPENROUTER_API_KEY=""
 Use only `openrouter/...` values for `FLUE_TRIAGE_EVAL_MODEL`; the eval runner
 rejects other providers.
 
+The eval suite starts one local Flue Node server, then invokes a fresh workflow
+instance per fixture through `@flue/sdk`. Every case uses the configured LLM,
+runs through `vitest-evals`, and may combine deterministic assertions with LLM
+judges. Cases have a hard 60-second timeout.
+
+Evals never call GitHub. The server is started without GitHub credentials, and
+all issue context is fixture-backed. Add a JSON file under
+`fixtures/issue-triage/` using this minimal shape; the filename becomes the case
+name, unknown fields fail validation, and all expectation fields are optional:
+
+```json
+{
+  "description": "What behavior this case protects.",
+  "source": {
+    "repository": "getsentry/example",
+    "issueNumber": 123,
+    "capturedAt": "2026-07-17T00:00:00Z"
+  },
+  "repositoryLabels": ["bug"],
+  "issue": {
+    "author": "reporter",
+    "authorAssociation": "NONE",
+    "title": "Issue title",
+    "labels": [],
+    "body": "Issue body"
+  },
+  "expectedTriage": {
+    "labels_include": ["bug"],
+    "should_close": false
+  }
+}
+```
+
+`repositoryLabels` are the labels available for the agent to apply. `labels`
+are labels already present on the issue. Keep both input fields independent from
+the expectations under `expectedTriage`.
+
 ## Sentry
 
 See [OBSERVABILITY.md](OBSERVABILITY.md) for the Flue Sentry bridge, Cloudflare Worker wrapping, runtime variables, and verification steps.

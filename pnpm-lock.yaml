@@ -20,7 +20,7 @@ importers:
         specifier: 1.0.0-beta.1
         version: 1.0.0-beta.1
       '@flue/runtime':
-        specifier: ^0.11.1
+        specifier: 0.11.1
         version: 0.11.1(@cfworker/json-schema@4.1.1)(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(typebox@1.1.38)(typescript@6.0.3)(ws@8.21.0)(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
       '@sentry/cloudflare':
         specifier: ^10.58.0
@@ -39,8 +39,11 @@ importers:
         specifier: ^4.20260615.1
         version: 4.20260615.1
       '@flue/cli':
-        specifier: ^0.11.1
+        specifier: 0.11.1
         version: 0.11.1(@cfworker/json-schema@4.1.1)(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(@types/node@25.9.3)(esbuild@0.28.1)(typebox@1.1.38)(typescript@6.0.3)(workerd@1.20260611.1)(wrangler@4.100.0(@cloudflare/workers-types@4.20260615.1))(ws@8.21.0)(yaml@2.9.0)(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
+      '@flue/sdk':
+        specifier: 0.11.1
+        version: 0.11.1
       dotenv:
         specifier: 17.4.2
         version: 17.4.2

@@ -64,34 +64,61 @@ export const issueTriageEvalDiagnosisSchema = v.object({
 });
 type Diagnosis = v.InferOutput<typeof issueTriageEvalDiagnosisSchema>;
 
-const fixtureSchema = v.object({
-  description: v.string(),
-  source: v.object({
-    repository: v.string(),
-    issueNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
-    capturedAt: v.string(),
-    url: v.optional(v.string()),
-    issueUrl: v.optional(v.string()),
+const authorAssociationSchema = v.picklist([
+  "COLLABORATOR",
+  "CONTRIBUTOR",
+  "FIRST_TIMER",
+  "FIRST_TIME_CONTRIBUTOR",
+  "MANNEQUIN",
+  "MEMBER",
+  "NONE",
+  "OWNER",
+]);
+
+export const issueTriageEvalFixtureSchema = v.pipe(
+  v.strictObject({
+    description: v.string(),
+    source: v.strictObject({
+      repository: v.string(),
+      issueNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
+      capturedAt: v.string(),
+    }),
+    repositoryLabels: v.array(v.string()),
+    issue: v.strictObject({
+      author: v.string(),
+      authorAssociation: authorAssociationSchema,
+      title: v.string(),
+      labels: v.optional(v.array(v.string()), []),
+      body: v.string(),
+    }),
+    expectedTriage: v.strictObject({
+      labels_include: v.optional(v.array(v.string())),
+      should_comment: v.optional(v.boolean()),
+      comment_kind: v.optional(commentKindSchema),
+      should_update_issue: v.optional(v.boolean()),
+      should_close: v.optional(v.boolean()),
+      close_reason: v.optional(closeReasonSchema),
+      needs_human_review: v.optional(v.boolean()),
+    }),
   }),
-  issue: v.object({
-    author: v.union([v.string(), v.object({ login: v.string() })]),
-    authorAssociation: v.optional(v.string()),
-    title: v.string(),
-    labelsAtCapture: v.array(v.string()),
-    body: v.string(),
-  }),
-  expectedTriage: v.object({
-    labels_to_apply: v.optional(v.array(v.string())),
-    labels_include: v.optional(v.array(v.string())),
-    should_comment: v.optional(v.boolean()),
-    comment_kind: v.optional(commentKindSchema),
-    should_update_issue: v.optional(v.boolean()),
-    should_close: v.optional(v.boolean()),
-    close_reason: v.optional(closeReasonSchema),
-    needs_human_review: v.optional(v.boolean()),
-  }),
-});
-type EvalFixture = v.InferOutput<typeof fixtureSchema>;
+  v.check((fixture) => {
+    const available = new Set(
+      fixture.repositoryLabels.map((label) => label.toLowerCase()),
+    );
+    return [
+      ...fixture.issue.labels,
+      ...(fixture.expectedTriage.labels_include ?? []),
+    ].every((label) => available.has(label.toLowerCase()));
+  }, "Issue and expected labels must exist in repositoryLabels."),
+);
+export type IssueTriageEvalFixture = v.InferOutput<
+  typeof issueTriageEvalFixtureSchema
+>;
+
+/** Strictly validates fixture input before either discovery or LLM execution. */
+export function parseIssueTriageEvalFixture(value: unknown) {
+  return v.parse(issueTriageEvalFixtureSchema, value);
+}
 
 function includesLabel(diagnosis: Diagnosis, label: string) {
   return diagnosis.labels_to_apply.some(
@@ -110,10 +137,13 @@ function addExactExpectation<T>(
   }
 }
 
-function evaluateDiagnosis(diagnosis: Diagnosis, fixture: EvalFixture) {
+function evaluateDiagnosis(
+  diagnosis: Diagnosis,
+  fixture: IssueTriageEvalFixture,
+) {
   const expected = fixture.expectedTriage;
   const failures: string[] = [];
-  const labels = expected.labels_include ?? expected.labels_to_apply ?? [];
+  const labels = expected.labels_include ?? [];
   const inferredShouldClose =
     shouldCloseAsSpam(diagnosis) ||
     shouldCloseAsInvalidLowSignal(buildIssueContext(fixture), diagnosis);
@@ -167,40 +197,29 @@ function evaluateDiagnosis(diagnosis: Diagnosis, fixture: EvalFixture) {
   return failures;
 }
 
-function buildIssueContext(fixture: EvalFixture) {
-  const author =
-    typeof fixture.issue.author === "string"
-      ? fixture.issue.author
-      : fixture.issue.author.login;
-  const issueUrl =
-    fixture.source.url ??
-    fixture.source.issueUrl ??
-    `https://github.com/${fixture.source.repository}/issues/${fixture.source.issueNumber}`;
-
-  const association = fixture.issue.authorAssociation?.trim();
+function buildIssueContext(fixture: IssueTriageEvalFixture) {
+  const issueUrl = `https://github.com/${fixture.source.repository}/issues/${fixture.source.issueNumber}`;
+  const issueLabels = fixture.issue.labels.map((name) => ({ name }));
+  const association = fixture.issue.authorAssociation;
   return {
     issueNumber: fixture.source.issueNumber,
     repository: fixture.source.repository,
-    reporter: association
-      ? {
-          association,
-          trusted: ["OWNER", "MEMBER", "COLLABORATOR"].includes(
-            association.toUpperCase(),
-          ),
-        }
-      : undefined,
+    reporter: {
+      association,
+      trusted: ["OWNER", "MEMBER", "COLLABORATOR"].includes(association),
+    },
     issue: {
       title: fixture.issue.title,
       body: fixture.issue.body,
-      author: { login: author },
-      labels: [],
+      author: { login: fixture.issue.author },
+      labels: issueLabels,
       comments: [],
       url: issueUrl,
       state: "open",
       createdAt: fixture.source.capturedAt,
       updatedAt: fixture.source.capturedAt,
     },
-    labels: fixture.issue.labelsAtCapture.map((name) => ({ name })),
+    labels: fixture.repositoryLabels.map((name) => ({ name })),
     fetchedAt: fixture.source.capturedAt,
   };
 }
@@ -210,7 +229,7 @@ export async function runIssueTriageEval(
   payload: unknown,
   issueTriageAgent: unknown,
 ) {
-  const fixture = v.parse(fixtureSchema, payload);
+  const fixture = parseIssueTriageEvalFixture(payload);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(
     `eval-${fixture.source.repository.replace(/[^A-Za-z0-9_.-]+/g, "-")}-${fixture.source.issueNumber}`,
@@ -237,7 +256,7 @@ export async function runIssueTriageEval(
       },
     },
     result: issueTriageEvalDiagnosisSchema,
-    signal: AbortSignal.timeout(300_000),
+    signal: AbortSignal.timeout(55_000),
   });
   const diagnosis = response.data;
   const failures = evaluateDiagnosis(diagnosis, fixture);

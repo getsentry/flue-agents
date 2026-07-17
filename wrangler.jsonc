@@ -41,6 +41,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["FlueIssueTriageEvalWorkflow"]
+    },
+    {
+      "tag": "v4",
+      "deleted_classes": ["FlueIssueTriageEvalWorkflow"]
     }
   ],
   "containers": [

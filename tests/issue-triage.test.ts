@@ -58,7 +58,12 @@ async function readMemberActionableFixture() {
     "../fixtures/issue-triage/member-actionable-sentry-mcp-1111.json",
     import.meta.url,
   );
-  return JSON.parse(await readFile(fixtureUrl, "utf8"));
+  return {
+    ...JSON.parse(await readFile(fixtureUrl, "utf8")),
+    modelComment:
+      "Hi, I'm Pierre!\n\nMerci for the report. I checked the repository and confirmed that neither the `GET /api/0/issues/{issue_id}/user-reports/` endpoint nor a `user_report` entry schema exists today. The gap is real.\n\nThe issue description already covers the two sensible implementation paths. A maintainer can take it from here.",
+    expectedCommentPosted: false,
+  };
 }
 
 async function readMemberTrackingFixture() {
@@ -66,7 +71,12 @@ async function readMemberTrackingFixture() {
     "../fixtures/issue-triage/member-tracking-junior-622.json",
     import.meta.url,
   );
-  return JSON.parse(await readFile(fixtureUrl, "utf8"));
+  return {
+    ...JSON.parse(await readFile(fixtureUrl, "utf8")),
+    modelComment:
+      "Hi, I'm Pierre!\n\nThis is a thorough analysis — thanks for surfacing the patterns. The existing ast-grep/oxlint setup you describe is in place, so the wiring should be straightforward.\n\nA quick note: this is a large tracking issue with ~12 tasks. The recommended first slice at the bottom is probably the right place to start. If you want pieces picked up by other contributors, splitting a few of those into smaller issues would make ownership clearer.\n\nMerci for the detailed write-up.",
+    expectedCommentPosted: false,
+  };
 }
 
 function base64FromBytes(bytes: Uint8Array) {
@@ -259,7 +269,7 @@ test("closes external registry spam using the deterministic GitHub update path",
       body: fixture.issue.body,
       state: "open",
     },
-    labels: fixture.issue.labelsAtCapture.map((name: string) => ({ name })),
+    labels: fixture.repositoryLabels.map((name: string) => ({ name })),
     fetchedAt: fixture.source.capturedAt,
   };
 
@@ -273,7 +283,7 @@ test("closes external registry spam using the deterministic GitHub update path",
     session,
     commandEnv,
     context,
-    fixture.observedTriage.diagnosis,
+    {},
   );
 
   assert.deepEqual(commandEnv, {
@@ -465,7 +475,7 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
   );
   const shellCalls: ShellCall[] = [];
   const files = new Map<string, string>();
-  const labels = fixture.issue.labelsAtCapture.map((name: string) => ({
+  const labels = fixture.repositoryLabels.map((name: string) => ({
     name,
     description: "This doesn't seem right",
   }));
@@ -475,7 +485,7 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
     author: { login: fixture.issue.author },
     labels: [],
     comments: [],
-    url: fixture.source.url,
+    url: `https://github.com/${fixture.source.repository}/issues/${fixture.source.issueNumber}`,
     state: "open",
     createdAt: "2026-06-16T20:52:38Z",
     updatedAt: fixture.source.capturedAt,
@@ -666,7 +676,7 @@ async function runMemberCommentSuppressionFixture(
   );
   const shellCalls: ShellCall[] = [];
   const files = new Map<string, string>();
-  const labels = fixture.issue.labelsAtCapture.map((name: string) => ({
+  const labels = fixture.issue.labels.map((name: string) => ({
     name,
     description: "Existing label",
   }));
@@ -676,7 +686,7 @@ async function runMemberCommentSuppressionFixture(
     author: { login: fixture.issue.author },
     labels,
     comments: [],
-    url: fixture.source.issueUrl,
+    url: `https://github.com/${fixture.source.repository}/issues/${fixture.source.issueNumber}`,
     state: "open",
     createdAt: "2026-06-19T00:00:00Z",
     updatedAt: fixture.source.capturedAt,
@@ -751,7 +761,7 @@ async function runMemberCommentSuppressionFixture(
           comment_rationale:
             "The model attempted to add a public note, but it adds no new action.",
           should_update_issue: false,
-          triage_comment: fixture.observedComment,
+          triage_comment: fixture.modelComment,
           should_close: false,
           needs_human_review: false,
           ...modelDiagnosis,
@@ -786,21 +796,21 @@ async function runMemberCommentSuppressionFixture(
   } as any);
 
   assert.equal(result.outcome, "triaged");
-  assert.equal(result.comment_posted, fixture.expectedTriage.comment_posted);
+  assert.equal(result.comment_posted, fixture.expectedCommentPosted);
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
   assert.ok(
-    fixture.expectedTriage.comment_posted
+    fixture.expectedCommentPosted
       ? shellCalls.some(({ command }) => command.startsWith("gh issue comment"))
       : shellCalls.every(
           ({ command }) => !command.startsWith("gh issue comment"),
         ),
   );
-  assert.equal(files.size > 0, fixture.expectedTriage.comment_posted);
-  if (fixture.expectedTriage.comment_posted) {
+  assert.equal(files.size > 0, fixture.expectedCommentPosted);
+  if (fixture.expectedCommentPosted) {
     const [commentPath, commentBody] = Array.from(files.entries())[0];
-    assert.equal(commentBody, fixture.observedComment);
+    assert.equal(commentBody, fixture.modelComment);
     assert.ok(
       shellCalls.some(
         ({ command }) =>
@@ -823,10 +833,10 @@ test("keeps specific missing-info comments for outside contributors", async (t) 
   const fixture = await readMemberActionableFixture();
   fixture.issue.author = "external-reporter";
   fixture.issue.authorAssociation = "NONE";
-  fixture.observedComment = [
+  fixture.modelComment = [
     "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
   ].join("\n");
-  fixture.expectedTriage.comment_posted = true;
+  fixture.expectedCommentPosted = true;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });
@@ -835,25 +845,25 @@ test("introduces Pierre in comments for first-time contributors", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.issue.author = "new-reporter";
   fixture.issue.authorAssociation = "FIRST_TIME_CONTRIBUTOR";
-  fixture.observedComment = [
+  fixture.modelComment = [
     "Hi, I'm Pierre!",
     "",
     "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
   ].join("\n");
-  fixture.expectedTriage.comment_posted = true;
+  fixture.expectedCommentPosted = true;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });
 
 test("keeps concrete validation comments for member issues", async (t) => {
   const fixture = await readMemberActionableFixture();
-  fixture.observedComment = [
+  fixture.modelComment = [
     "Merci for the report. I found one extra repo detail that seems useful here.",
     "",
     "What I checked:",
     "- `packages/mcp-core/src/api-client/client.ts` has no issue user reports wrapper today.",
   ].join("\n");
-  fixture.expectedTriage.comment_posted = true;
+  fixture.expectedCommentPosted = true;
   fixture.modelDiagnosis = {
     comment_kind: "concrete_validation",
     comment_rationale: "Adds a concrete repository finding not already captured.",
@@ -867,12 +877,12 @@ test("keeps concrete validation comments for member issues", async (t) => {
 
 test("suppresses rhetorical questions on member actionable issues", async (t) => {
   const fixture = await readMemberActionableFixture();
-  fixture.observedComment = [
+  fixture.modelComment = [
     "Hi, I'm Pierre!",
     "",
     "What happens next? The issue already covers the sensible paths, so a maintainer can take it from here.",
   ].join("\n");
-  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedCommentPosted = false;
   fixture.modelDiagnosis = {
     comment_kind: "scope_note",
   };

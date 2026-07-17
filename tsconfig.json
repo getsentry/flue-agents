@@ -9,8 +9,10 @@
     "types": ["@cloudflare/workers-types"]
   },
   "include": [
+    "evals/**/*.ts",
     "src/**/*.ts",
-    "src/**/*.md"
+    "src/**/*.md",
+    "vitest.evals.config.ts"
   ],
   "exclude": ["dist", "node_modules"]
 }
