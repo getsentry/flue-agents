@@ -27,11 +27,16 @@ const EVAL_SERVER_ENV_KEYS = [
 ] as const;
 
 type EvalServer = {
-  baseUrl: string;
+  getBaseUrl: () => Promise<string>;
   stop: () => Promise<void>;
 };
 
 type EvalServerProcess = ChildProcessByStdio<null, Readable, Readable>;
+
+type RunningEvalServer = {
+  baseUrl: string;
+  child: EvalServerProcess;
+};
 
 type WorkflowHarnessOptions<
   TInput,
@@ -39,7 +44,7 @@ type WorkflowHarnessOptions<
 > = {
   name: string;
   workflowName: string;
-  getBaseUrl: () => string;
+  getBaseUrl: () => string | Promise<string>;
   inputMessage: (input: TInput) => string;
   parseOutput: (output: unknown) => TOutput;
   timeoutMs?: number;
@@ -144,8 +149,6 @@ export async function startFlueEvalServer(options: {
   envFile: string;
   startupTimeoutMs?: number;
 }): Promise<EvalServer> {
-  const port = await availablePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = {};
   for (const key of EVAL_SERVER_ENV_KEYS) {
     if (process.env[key] !== undefined) {
@@ -153,51 +156,95 @@ export async function startFlueEvalServer(options: {
     }
   }
 
-  const child = spawn(
-    "pnpm",
-    [
-      "exec",
-      "flue",
-      "dev",
-      "--target",
-      "node",
-      "--root",
-      options.root,
-      "--env",
-      options.envFile,
-      "--port",
-      String(port),
-    ],
-    {
-      cwd: options.cwd,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  let current: RunningEvalServer | undefined;
+  let startPromise: Promise<RunningEvalServer> | undefined;
+  let stopped = false;
 
-  let logs = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    logs = appendLog(logs, chunk);
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
-    logs = appendLog(logs, chunk);
-  });
-
-  try {
-    await waitForServer(
-      child,
-      baseUrl,
-      () => logs,
-      options.startupTimeoutMs ?? 60_000,
+  const start = async () => {
+    const port = await availablePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const child = spawn(
+      "pnpm",
+      [
+        "exec",
+        "flue",
+        "dev",
+        "--target",
+        "node",
+        "--root",
+        options.root,
+        "--env",
+        options.envFile,
+        "--port",
+        String(port),
+      ],
+      {
+        cwd: options.cwd,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
-  } catch (error) {
-    await stopChild(child);
-    throw error;
-  }
+
+    let logs = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      logs = appendLog(logs, chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      logs = appendLog(logs, chunk);
+    });
+
+    try {
+      await waitForServer(
+        child,
+        baseUrl,
+        () => logs,
+        options.startupTimeoutMs ?? 60_000,
+      );
+    } catch (error) {
+      await stopChild(child);
+      throw error;
+    }
+    return { baseUrl, child };
+  };
+
+  const getBaseUrl = async () => {
+    if (stopped) {
+      throw new Error("Flue eval server has already stopped.");
+    }
+
+    if (current && !isTerminated(current.child)) {
+      try {
+        await fetch(current.baseUrl, { signal: AbortSignal.timeout(1_000) });
+        return current.baseUrl;
+      } catch {
+        await stopChild(current.child);
+        current = undefined;
+      }
+    }
+
+    startPromise ??= start();
+    try {
+      current = await startPromise;
+      return current.baseUrl;
+    } finally {
+      startPromise = undefined;
+    }
+  };
+
+  await getBaseUrl();
 
   return {
-    baseUrl,
-    stop: () => stopChild(child),
+    getBaseUrl,
+    stop: async () => {
+      stopped = true;
+      const pending = startPromise;
+      const running =
+        current ?? (pending ? await pending.catch(() => undefined) : undefined);
+      current = undefined;
+      if (running) {
+        await stopChild(running.child);
+      }
+    },
   };
 }
 
@@ -261,7 +308,7 @@ export function createFlueWorkflowHarness<
       const runSignal = signal
         ? AbortSignal.any([signal, timeoutSignal])
         : timeoutSignal;
-      const client = createFlueClient({ baseUrl: options.getBaseUrl() });
+      const client = createFlueClient({ baseUrl: await options.getBaseUrl() });
       const admission = await client.workflows.invoke(options.workflowName, {
         payload: input,
         signal: runSignal,

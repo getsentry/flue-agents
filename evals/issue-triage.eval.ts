@@ -67,6 +67,7 @@ function createEvalRoot() {
       ``,
       `export default createAgent(({ env }) => ({`,
       `  model: env.FLUE_TRIAGE_EVAL_MODEL ?? env.FLUE_TRIAGE_MODEL,`,
+      `  thinkingLevel: "low",`,
       `  cwd: "/workspace",`,
       `  skills: [issueTriage],`,
       `  instructions: \`Triage Sentry GitHub issues carefully. \${PIERRE_PERSONALITY} Use the issue-triage skill for duplicate search, diagnosis, validation, concise issue updates, and safe closure decisions.\`,`,
@@ -168,7 +169,7 @@ const issueTriageHarness = createFlueWorkflowHarness<
     if (!evalServer) {
       throw new Error("Flue eval server has not started.");
     }
-    return evalServer.baseUrl;
+    return evalServer.getBaseUrl();
   },
   inputMessage: (input) => input.description,
   parseOutput: parseEvalOutput,
