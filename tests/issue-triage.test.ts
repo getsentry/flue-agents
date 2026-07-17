@@ -206,6 +206,42 @@ test("requires close_reason in structured output when closing", () => {
   assert.equal(result.success, false);
 });
 
+test("accepts affected users as a list in gap analysis", () => {
+  const result = v.safeParse(issueTriageDiagnosisSchema, {
+    severity: "medium",
+    category: "feature_request",
+    disposition: "actionable",
+    rewrite_mode: "none",
+    validity: "likely",
+    summary: "The requested capability is missing.",
+    evidence: ["The issue describes the missing capability."],
+    gap_analysis: {
+      current_capability: "The capability is not available.",
+      desired_outcome: "Expose the requested capability.",
+      gap: "No supported interface exposes it.",
+      affected_users: ["SDK maintainers", "Integration users"],
+      workaround: null,
+      acceptance_criteria: ["The capability is available."],
+      constraints: [],
+      smallest_viable_slice: "Add one supported interface.",
+      decision_type: "implementation",
+      evidence: [
+        {
+          source: "reporter",
+          claim: "The issue identifies the affected users.",
+        },
+      ],
+    },
+    labels_to_apply: ["enhancement"],
+    should_comment: false,
+    should_update_issue: false,
+    should_close: false,
+    needs_human_review: false,
+  });
+
+  assert.equal(result.success, true);
+});
+
 test("requires structured root cause and gap analysis", () => {
   const base = {
     severity: "medium",
@@ -868,8 +904,19 @@ async function runMemberCommentSuppressionFixture(
           exitCode: 0,
           stdout: JSON.stringify(
             fixture.changeIssueDuringAnalysis && issueViewCount >= 3
-              ? { ...issue, updatedAt: "2026-07-15T22:30:00Z" }
-              : issue,
+              ? { ...issue, body: `${issue.body}\n\nExternally edited.` }
+              : fixture.addCommentDuringAnalysis && issueViewCount >= 3
+                ? {
+                    ...issue,
+                    comments: [
+                      {
+                        author: { login: "another-user" },
+                        body: "Additional context.",
+                      },
+                    ],
+                    updatedAt: "2026-07-15T22:30:00Z",
+                  }
+                : issue,
           ),
           stderr: "",
         };
@@ -936,7 +983,7 @@ async function runMemberCommentSuppressionFixture(
           current_capability: "The requested behavior is not exposed today.",
           desired_outcome: "Agents can use the requested behavior.",
           gap: "The repository lacks the requested integration surface.",
-          affected_users: "MCP users",
+          affected_users: ["MCP users"],
           workaround: null,
           acceptance_criteria: ["Expose the requested behavior."],
           constraints: [],
@@ -1005,7 +1052,9 @@ async function runMemberCommentSuppressionFixture(
   }
   if (fixture.expectedTriage.issue_changed !== undefined) {
     assert.equal(result.issue_changed, fixture.expectedTriage.issue_changed);
-    assert.equal(result.needs_human_review, true);
+    if (fixture.expectedTriage.issue_changed) {
+      assert.equal(result.needs_human_review, true);
+    }
     assert.deepEqual(result.labels_proposed, []);
   }
   if (fixture.expectedTriage.outcome === "needs_human_review") {
@@ -1051,6 +1100,17 @@ test("returns complete dry-run output when the issue changes during analysis", a
   fixture.expectedTriage.outcome = "dry_run";
   fixture.expectedTriage.comment_posted = false;
   fixture.expectedTriage.issue_changed = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("ignores comments added during dry-run analysis", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.addCommentDuringAnalysis = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = false;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });

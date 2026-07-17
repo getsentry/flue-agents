@@ -59,7 +59,7 @@ export const gapAnalysisSchema = v.object({
   current_capability: v.string(),
   desired_outcome: v.string(),
   gap: v.string(),
-  affected_users: v.nullable(v.string()),
+  affected_users: v.nullable(v.array(v.string())),
   workaround: v.nullable(v.string()),
   acceptance_criteria: v.array(v.string()),
   constraints: v.array(v.string()),
