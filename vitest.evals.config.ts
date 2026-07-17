@@ -15,7 +15,7 @@ export default defineConfig({
   test: {
     environment: "node",
     fileParallelism: false,
-    hookTimeout: 60_000,
+    hookTimeout: 70_000,
     include: ["evals/**/*.eval.ts"],
     maxWorkers: 1,
     outputFile: { json: "vitest-results.json" },

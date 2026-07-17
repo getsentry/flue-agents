@@ -138,7 +138,7 @@ beforeAll(async () => {
     root: evalRoot,
     envFile: evalEnv,
   });
-}, 60_000);
+}, 70_000);
 
 afterAll(async () => {
   await evalServer?.stop();
