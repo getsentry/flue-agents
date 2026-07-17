@@ -17,13 +17,11 @@
   "expectedTriage": {
     "labels_include": ["bug"],
     "should_close": false,
-    "needs_human_review": false,
     "analysis": {
       "kind": "bug",
       "root_cause_includes": ["system actor", "currentUser", "credentialSubject"],
       "min_causal_chain_steps": 3,
-      "min_structured_evidence": 2,
-      "confidence": "high"
+      "min_structured_evidence": 2
     }
   }
 }
