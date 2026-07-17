@@ -916,7 +916,9 @@ async function runMemberCommentSuppressionFixture(
                     ],
                     updatedAt: "2026-07-15T22:30:00Z",
                   }
-                : issue,
+                : fixture.reorderLabelsDuringAnalysis && issueViewCount >= 3
+                  ? { ...issue, labels: [...issue.labels].reverse() }
+                  : issue,
           ),
           stderr: "",
         };
@@ -1111,6 +1113,17 @@ test("marks analysis stale when comments are added during a dry run", async (t) 
   fixture.expectedTriage.outcome = "dry_run";
   fixture.expectedTriage.comment_posted = false;
   fixture.expectedTriage.issue_changed = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("does not mark analysis stale when label order changes", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.reorderLabelsDuringAnalysis = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = false;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });
