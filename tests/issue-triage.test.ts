@@ -1104,13 +1104,13 @@ test("returns complete dry-run output when the issue changes during analysis", a
   await runMemberCommentSuppressionFixture(t, fixture);
 });
 
-test("ignores comments added during dry-run analysis", async (t) => {
+test("marks analysis stale when comments are added during a dry run", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.dryRun = true;
   fixture.addCommentDuringAnalysis = true;
   fixture.expectedTriage.outcome = "dry_run";
   fixture.expectedTriage.comment_posted = false;
-  fixture.expectedTriage.issue_changed = false;
+  fixture.expectedTriage.issue_changed = true;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });
