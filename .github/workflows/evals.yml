@@ -18,7 +18,8 @@ jobs:
   evals:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Eight serial fixtures may each use up to three four-minute attempts.
+    timeout-minutes: 120
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
