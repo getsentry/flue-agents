@@ -32,22 +32,29 @@ const baseDiagnosis = {
 } as const;
 
 function assertCompleteFollowupSchema(schema: v.GenericSchema) {
-  const incomplete = v.safeParse(schema, {
+  const incomplete = v.parse(schema, {
     ...baseDiagnosis,
     followup_comment: "I found a concrete repository detail.",
   });
-  const complete = v.safeParse(schema, {
+  const blank = v.parse(schema, {
+    ...baseDiagnosis,
+    followup_kind: "technical_diagnosis",
+    followup_rationale: " ",
+    followup_comment: "I found a concrete repository detail.",
+  });
+  const complete = v.parse(schema, {
     ...baseDiagnosis,
     followup_kind: "technical_diagnosis",
     followup_rationale: "Adds repository evidence.",
     followup_comment: "I found a concrete repository detail.",
   });
 
-  assert.equal(incomplete.success, false);
-  assert.equal(complete.success, true);
+  assert.equal(incomplete.followup_comment, undefined);
+  assert.equal(blank.followup_kind, undefined);
+  assert.equal(complete.followup_kind, "technical_diagnosis");
 }
 
-test("requires complete follow-up metadata in evals", () => {
+test("normalizes incomplete follow-up metadata in evals", () => {
   assertCompleteFollowupSchema(issueTriageEvalDiagnosisSchema);
 });
 
@@ -875,10 +882,10 @@ test("suppresses praise and restatement comments on member tracking issues", asy
   await runMemberCommentSuppressionFixture(t, await readMemberTrackingFixture());
 });
 
-test("falls back safely for incomplete production follow-up metadata", async (t) => {
+test("ignores incomplete production follow-up metadata", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.modelDiagnosis = { followup_kind: undefined };
-  fixture.expectedNeedsHumanReview = true;
+  fixture.expectedCommentPosted = false;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });

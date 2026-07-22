@@ -40,24 +40,29 @@ export const issueTriageEvalDiagnosisSchema = v.pipe(
     evidence: v.array(v.string()),
     labels_to_apply: v.array(v.string()),
     followup_kind: v.optional(followupKindSchema),
-    followup_rationale: v.optional(v.pipe(v.string(), v.trim(), v.nonEmpty())),
-    followup_comment: v.optional(v.pipe(v.string(), v.trim(), v.nonEmpty())),
+    followup_rationale: v.optional(v.pipe(v.string(), v.trim())),
+    followup_comment: v.optional(v.pipe(v.string(), v.trim())),
     should_close: v.optional(v.boolean()),
     close_reason: v.optional(closeReasonSchema),
     close_comment: v.optional(v.string()),
     needs_human_review: v.boolean(),
   }),
-  v.check((diagnosis) => {
-    const followup = [
-      diagnosis.followup_kind,
-      diagnosis.followup_rationale,
-      diagnosis.followup_comment,
-    ];
-    return (
-      followup.every((value) => value === undefined) ||
-      followup.every((value) => value !== undefined)
-    );
-  }, "Follow-up kind, rationale, and comment must be provided together."),
+  v.transform((diagnosis) => {
+    if (
+      diagnosis.followup_kind !== undefined &&
+      diagnosis.followup_rationale &&
+      diagnosis.followup_comment
+    ) {
+      return diagnosis;
+    }
+
+    return {
+      ...diagnosis,
+      followup_kind: undefined,
+      followup_rationale: undefined,
+      followup_comment: undefined,
+    };
+  }),
 );
 type Diagnosis = v.InferOutput<typeof issueTriageEvalDiagnosisSchema>;
 
