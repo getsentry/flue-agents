@@ -884,6 +884,8 @@ test("suppresses praise and restatement comments on member tracking issues", asy
 
 test("ignores incomplete production follow-up metadata", async (t) => {
   const fixture = await readMemberActionableFixture();
+  fixture.issue.author = "external-reporter";
+  fixture.issue.authorAssociation = "NONE";
   fixture.modelDiagnosis = { followup_kind: undefined };
   fixture.expectedCommentPosted = false;
 
