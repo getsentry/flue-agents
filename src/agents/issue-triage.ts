@@ -6,10 +6,11 @@ import { createAgent } from "@flue/runtime";
 import { cfSandboxToSessionEnv, extend } from "@flue/runtime/cloudflare";
 import * as Sentry from "@sentry/cloudflare";
 
-import { PIERRE_PERSONALITY } from "../lib/pierre.ts";
-import { DEFAULT_ISSUE_TRIAGE_MODEL } from "../lib/issue-triage-model.ts";
+import {
+  getIssueTriageModel,
+  issueTriageAgentConfig,
+} from "../lib/issue-triage-agent.ts";
 import { getSentryOptions, type SentryEnv } from "../lib/sentry";
-import issueTriage from "../skills/issue-triage/SKILL.md" with { type: "skill" };
 
 type Env = SentryEnv & {
   FLUE_TRIAGE_EVAL_MODEL?: string;
@@ -21,12 +22,8 @@ export default createAgent<unknown, Env>(({ id, env }) => {
   const sandboxNamespace = env.Sandbox;
 
   return {
-    model:
-      env.FLUE_TRIAGE_EVAL_MODEL ??
-      env.FLUE_TRIAGE_MODEL ??
-      DEFAULT_ISSUE_TRIAGE_MODEL,
-    thinkingLevel: "low",
-    cwd: "/workspace",
+    ...issueTriageAgentConfig,
+    model: getIssueTriageModel(env),
     sandbox: sandboxNamespace
       ? {
           createSessionEnv: async () => {
@@ -38,8 +35,6 @@ export default createAgent<unknown, Env>(({ id, env }) => {
           },
         }
       : undefined,
-    skills: [issueTriage],
-    instructions: `Triage Sentry GitHub issues carefully. ${PIERRE_PERSONALITY} Use the issue-triage skill for duplicate search, diagnosis, validation, concise additive follow-up comments, and safe closure decisions. Never rewrite reporter-authored issue content.`,
   };
 });
 

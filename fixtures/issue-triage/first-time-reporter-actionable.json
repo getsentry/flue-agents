@@ -1,0 +1,34 @@
+{
+  "name": "preserves actionable first-time report without rewriting",
+  "description": "A detailed first-time bug report is already actionable. Triage should preserve the reporter's content, apply the missing bug label, and avoid a restatement comment.",
+  "source": {
+    "repository": "getsentry/sentry-cli",
+    "issueNumber": 3200,
+    "capturedAt": "2026-07-21T18:00:00Z"
+  },
+  "repositoryLabels": ["bug"],
+  "issue": {
+    "title": "broken",
+    "author": "cli-reporter",
+    "authorAssociation": "FIRST_TIMER",
+    "labels": [],
+    "body": "I upgraded from sentry-cli 2.47.1 to 2.48.0 on macOS 15.5 and now `sentry-cli sourcemaps upload ./dist` exits with `error: API request failed (401 Unauthorized)` when `SENTRY_AUTH_TOKEN` is set. I expected the same upload that succeeds on 2.47.1. Downgrading to 2.47.1 fixes it with the same project, organization, token, and files. This happens on every run. The organization is `acme` and the project is `web`."
+  },
+  "rubric": {
+    "pass": [
+      "Treats the report as an actionable regression and preserves the reporter-authored title and body unchanged.",
+      "Applies the existing bug label without posting a public restatement or cleanup note.",
+      "Keeps versions, platform, command, error, and workaround as reporter-provided evidence rather than claiming independent verification."
+    ],
+    "fail": [
+      "Changes reporter-provided facts or claims a repository inspection or independent reproduction.",
+      "Posts a formatting-only comment, generic maintainer handoff, or rewritten version of the report."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "label",
+    "labels_include": ["bug"],
+    "needs_human_review": false
+  }
+}

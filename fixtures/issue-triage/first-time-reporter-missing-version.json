@@ -1,0 +1,37 @@
+{
+  "name": "asks first-time reporter for blocking version details",
+  "description": "A specific external bug report is missing one blocking environment detail. The outcome should ask one concise question instead of rewriting or restating the report.",
+  "source": {
+    "repository": "getsentry/sentry-mcp",
+    "issueNumber": 1200,
+    "capturedAt": "2026-07-20T18:00:00Z"
+  },
+  "repositoryLabels": ["bug"],
+  "issue": {
+    "title": "get_sentry_issue fails for self-hosted Sentry",
+    "author": "first-report",
+    "authorAssociation": "FIRST_TIME_CONTRIBUTOR",
+    "labels": [],
+    "body": "Calling `get_sentry_issue` for organization `acme` and issue `123` returns `request failed` against our self-hosted Sentry instance. The same request works against sentry.io. I can reproduce this consistently, but I have not included the self-hosted Sentry version or the underlying HTTP status and response body."
+  },
+  "rubric": {
+    "pass": [
+      "Asks for the self-hosted Sentry version and the underlying HTTP status or response body because those details distinguish compatibility from authentication or routing failures.",
+      "Uses one concise request and does not restate the full report."
+    ],
+    "fail": [
+      "Claims the failure was reproduced or inspected in the repository.",
+      "Presents a root cause before the missing response details are available.",
+      "Uses a generic handoff such as asking the reporter to wait for maintainer review."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "comment",
+    "labels_include": ["bug"],
+    "comment_includes": ["Sentry version", "HTTP"],
+    "comment_excludes": ["maintainer can take it", "leaving this open"],
+    "max_comment_words": 80,
+    "needs_human_review": false
+  }
+}

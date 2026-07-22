@@ -14,9 +14,22 @@
     "labels": [],
     "body": "Hi @getsentry \ud83d\udc4b\n\nWe added your project **Sentry MCP Server** to **CodeGuilds** \u2014 a community registry for the Claude Code ecosystem (like npmjs but for Claude skills, agents, MCP servers, and tools).\n\nYour package is live at: **https://codeguilds.dev/packages/sentry-mcp**\n\nIf you'd like to claim ownership of the listing and manage it yourself, you can sign in with GitHub at https://codeguilds.dev and claim the package from your dashboard.\n\nThanks for building this \u2014 the community appreciates it!\n\n*This issue was opened automatically by the CodeGuilds team. Feel free to close it.*"
   },
-  "expectedTriage": {
+  "rubric": {
+    "pass": [
+      "Identifies the issue as external promotion rather than repository work and closes it without asking maintainers to investigate.",
+      "The closure comment is brief, direct, and understandable without internal triage terminology."
+    ],
+    "fail": [
+      "Suggests that the registry listing creates a repository, legal, or ownership problem without evidence.",
+      "Uses more personality than explanation."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "close",
     "labels_include": ["invalid"],
-    "should_close": true,
+    "comment_includes": ["promotion", "closing", "invalid"],
+    "max_comment_words": 45,
     "close_reason": "not planned",
     "needs_human_review": false
   }

@@ -37,7 +37,12 @@ provider and model used by the production Cloudflare Worker. Set
 first, then `.env.local`, with shell variables winning over both. Evals only
 accept `openrouter/...` models. Model calls have a hard 120-second timeout. The
 eval server receives no GitHub credentials and never calls GitHub; issue and
-repository context comes entirely from the fixture.
+repository context comes entirely from the fixture. Each fixture runs with the
+production issue-triage agent configuration and applies deterministic assertions
+to the same normalized GitHub-visible outcome used by production. Fixtures may
+also define a qualitative rubric scored by a separate `vitest-evals` judge on
+usefulness, precision, structure, and restraint. Both the internal diagnosis and
+the final outcome remain inspectable in `vitest-results.json`.
 
 ## Quick Start
 

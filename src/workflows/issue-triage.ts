@@ -15,9 +15,6 @@ import * as v from "valibot";
 import issueTriageAgent from "../agents/issue-triage.ts";
 import {
   applyLabels,
-  closeInvalidIssue,
-  closeSpamIssue,
-  findDuplicateLabel,
   type GithubCommandEnv,
   resolveGithubCommandEnv,
   type IssueContext,
@@ -29,15 +26,13 @@ import {
 } from "../lib/issue-triage-github.ts";
 import {
   assertDiagnosisAnalysis,
-  closeReasonSchema,
   issueTriageDiagnosisSchema,
   type IssueTriageDiagnosis,
 } from "../lib/issue-triage-analysis.ts";
 import {
-  shouldCloseAsInvalidLowSignal,
-  shouldCloseAsSpam,
-} from "../lib/issue-triage-close-decision.ts";
-import { PIERRE_COMMENT_OPENER } from "../lib/pierre.ts";
+  resolveDuplicateOutcome,
+  resolveIssueTriageOutcome,
+} from "../lib/issue-triage-outcome.ts";
 import { getSentryOptions, type SentryEnv } from "../lib/sentry.ts";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
@@ -97,8 +92,8 @@ const updateSchema = v.object({
   labels_applied: v.array(v.string()),
   comment_posted: v.boolean(),
   issue_closed: v.boolean(),
-  closure_kind: v.optional(v.picklist(["spam", "invalid"])),
-  close_reason: v.optional(closeReasonSchema),
+  closure_kind: v.optional(v.picklist(["spam", "invalid", "duplicate"])),
+  close_reason: v.optional(v.picklist(["not planned", "duplicate"])),
   needs_human_review: v.boolean(),
   summary: v.string(),
 });
@@ -338,30 +333,6 @@ function getIssueAuthorAssociation(context: IssueContext) {
   return null;
 }
 
-function isTrustedReporter(context: IssueContext) {
-  return context.reporter?.trusted === true
-    ? true
-    : isTrustedAssociation(getIssueAuthorAssociation(context) ?? undefined);
-}
-
-/**
- * Suppresses standalone trusted-reporter comments unless the model classifies
- * them as a blocking ask or concrete repository validation finding.
- */
-function shouldSuppressTriageComment(
-  context: IssueContext,
-  diagnosis: Diagnosis,
-) {
-  if (!isTrustedReporter(context)) {
-    return false;
-  }
-
-  return !(
-    diagnosis.followup_kind === "missing_info_request" ||
-    diagnosis.followup_kind === "technical_diagnosis"
-  );
-}
-
 async function readJsonCommand(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
@@ -437,19 +408,15 @@ async function closeDuplicate(
   context: IssueContext,
   duplicate: v.InferOutput<typeof duplicateCandidateSchema>,
 ) {
-  const duplicateLabel = findDuplicateLabel(context);
-  const labelsApplied = duplicateLabel
-    ? await applyLabels(session, commandEnv, context, [duplicateLabel])
-    : [];
-  const comment = [
-    PIERRE_COMMENT_OPENER,
-    "",
-    `Thanks for the report. This looks like the same issue as #${duplicate.number}.`,
-    "",
-    `I'm closing this one so the conversation stays in one place. Please follow #${duplicate.number} for updates.`,
-  ].join("\n");
+  const outcome = resolveDuplicateOutcome(context, duplicate.number);
+  const labelsApplied = await applyLabels(
+    session,
+    commandEnv,
+    context,
+    outcome.labels,
+  );
 
-  await postComment(session, commandEnv, context, comment);
+  await postComment(session, commandEnv, context, outcome.comment);
   await runGhCommand(
     session,
     commandEnv,
@@ -458,23 +425,6 @@ async function closeDuplicate(
   );
 
   return labelsApplied;
-}
-
-function buildUnsafeCloseComment() {
-  return [
-    PIERRE_COMMENT_OPENER,
-    "",
-    "I do not have enough confidence to close this automatically. A maintainer can make the call.",
-  ].join("\n");
-}
-
-/** Applies trusted-reporter suppression to a schema-validated follow-up. */
-function selectFollowupComment(diagnosis: Diagnosis, context: IssueContext) {
-  if (shouldSuppressTriageComment(context, diagnosis)) {
-    return undefined;
-  }
-
-  return diagnosis.followup_comment;
 }
 
 async function applyTriageUpdate(
@@ -495,11 +445,9 @@ async function applyTriageUpdate(
     };
   }
 
-  if (
-    diagnosis.needs_human_review ||
-    diagnosis.category === "security" ||
-    diagnosis.severity === "critical"
-  ) {
+  const outcome = resolveIssueTriageOutcome(context, diagnosis);
+
+  if (outcome.action === "none" && outcome.needs_human_review) {
     return {
       title_updated: false,
       body_updated: false,
@@ -516,16 +464,22 @@ async function applyTriageUpdate(
     session,
     commandEnv,
     context,
-    diagnosis.labels_to_apply,
+    outcome.labels,
   );
   let commentPosted = false;
 
-  if (shouldCloseAsSpam(diagnosis)) {
-    commentPosted = await closeSpamIssue(
+  if (outcome.action === "close") {
+    commentPosted = await postComment(
       session,
       commandEnv,
       context,
-      diagnosis,
+      outcome.comment,
+    );
+    await runGhCommand(
+      session,
+      commandEnv,
+      `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote(outcome.close_reason ?? "not planned")}`,
+      "Closing triaged issue",
     );
 
     return {
@@ -534,41 +488,23 @@ async function applyTriageUpdate(
       labels_applied: labelsApplied,
       comment_posted: commentPosted,
       issue_closed: true,
-      closure_kind: "spam",
-      close_reason: "not planned",
+      closure_kind: outcome.closure_kind,
+      close_reason: outcome.close_reason,
       needs_human_review: false,
-      summary: "Closed issue as spam.",
+      summary:
+        outcome.closure_kind === "spam"
+          ? "Closed issue as spam."
+          : "Closed issue as invalid low-signal.",
     };
   }
 
-  if (shouldCloseAsInvalidLowSignal(context, diagnosis)) {
-    commentPosted = await closeInvalidIssue(
+  if (outcome.comment) {
+    commentPosted = await postComment(
       session,
       commandEnv,
       context,
-      diagnosis,
+      outcome.comment,
     );
-
-    return {
-      title_updated: false,
-      body_updated: false,
-      labels_applied: labelsApplied,
-      comment_posted: commentPosted,
-      issue_closed: true,
-      closure_kind: "invalid",
-      close_reason: "not planned",
-      needs_human_review: false,
-      summary: "Closed issue as invalid low-signal.",
-    };
-  }
-
-  const unsafeCloseRequest = diagnosis.should_close === true;
-
-  const comment = unsafeCloseRequest
-    ? buildUnsafeCloseComment()
-    : selectFollowupComment(diagnosis, context);
-  if (comment) {
-    commentPosted = await postComment(session, commandEnv, context, comment);
   }
 
   const changed = [
@@ -582,8 +518,8 @@ async function applyTriageUpdate(
     labels_applied: labelsApplied,
     comment_posted: commentPosted,
     issue_closed: false,
-    needs_human_review: diagnosis.needs_human_review || unsafeCloseRequest,
-    summary: unsafeCloseRequest
+    needs_human_review: outcome.needs_human_review,
+    summary: outcome.needs_human_review
       ? "Skipped unsafe close request and left the issue open for maintainer review."
       : changed.length > 0
         ? `Updated issue ${changed.join(", ")}.`
@@ -953,6 +889,7 @@ export async function run({
   );
   const issueChanged =
     issueSnapshot(diagnosisContext) !== issueSnapshot(updateContext);
+  const proposedOutcome = resolveIssueTriageOutcome(updateContext, diagnosis);
   if (!dryRun && issueChanged) {
     return {
       outcome: "needs_human_review",
@@ -969,7 +906,7 @@ export async function run({
       category: diagnosis.category,
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
-      labels_proposed: diagnosis.labels_to_apply,
+      labels_proposed: proposedOutcome.labels,
       labels_applied: [],
       comment_posted: false,
       title_updated: false,
@@ -1002,13 +939,12 @@ export async function run({
       severity: diagnosis.severity,
       category: diagnosis.category,
       disposition: diagnosis.disposition,
-      rewrite_mode: diagnosis.rewrite_mode,
       validity: diagnosis.validity,
       duplicate: duplicateSearch.duplicate,
-      labels_proposed: diagnosis.labels_to_apply,
-      should_comment: diagnosis.should_comment,
-      should_update_issue: diagnosis.should_update_issue,
-      should_close: diagnosis.should_close,
+      labels_proposed: proposedOutcome.labels,
+      comment_proposed: proposedOutcome.comment,
+      should_close: proposedOutcome.action === "close",
+      close_reason: proposedOutcome.close_reason,
       labels_applied: [],
       comment_posted: false,
       title_updated: false,
@@ -1047,7 +983,6 @@ export async function run({
       severity: diagnosis.severity,
       category: diagnosis.category,
       disposition: diagnosis.disposition,
-      rewrite_mode: diagnosis.rewrite_mode,
       validity: diagnosis.validity,
       labels_applied: [],
       comment_posted: false,

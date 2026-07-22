@@ -118,6 +118,7 @@ async function readMemberActionableFixture() {
     modelComment:
       "Hi, I'm Pierre!\n\nMerci for the report. I checked the repository and confirmed that neither the `GET /api/0/issues/{issue_id}/user-reports/` endpoint nor a `user_report` entry schema exists today. The gap is real.\n\nThe issue description already covers the two sensible implementation paths. A maintainer can take it from here.",
     expectedCommentPosted: false,
+    expectedTriage: {},
   };
 }
 
@@ -131,6 +132,7 @@ async function readMemberTrackingFixture() {
     modelComment:
       "Hi, I'm Pierre!\n\nThis is a thorough analysis — thanks for surfacing the patterns. The existing ast-grep/oxlint setup you describe is in place, so the wiring should be straightforward.\n\nA quick note: this is a large tracking issue with ~12 tasks. The recommended first slice at the bottom is probably the right place to start. If you want pieces picked up by other contributors, splitting a few of those into smaller issues would make ownership clearer.\n\nMerci for the detailed write-up.",
     expectedCommentPosted: false,
+    expectedTriage: {},
   };
 }
 
@@ -191,13 +193,10 @@ test("requires close_reason in structured output when closing", () => {
     severity: "low",
     category: "maintenance",
     disposition: "spam",
-    rewrite_mode: "none",
     validity: "likely",
     summary: "Automated external promotion.",
     evidence: ["The issue says it was opened automatically."],
     labels_to_apply: ["invalid"],
-    should_comment: false,
-    should_update_issue: false,
     should_close: true,
     close_comment: "Closing this automated promotion as not planned.",
     needs_human_review: false,
@@ -211,7 +210,6 @@ test("accepts affected users as a list in gap analysis", () => {
     severity: "medium",
     category: "feature_request",
     disposition: "actionable",
-    rewrite_mode: "none",
     validity: "likely",
     summary: "The requested capability is missing.",
     evidence: ["The issue describes the missing capability."],
@@ -233,8 +231,6 @@ test("accepts affected users as a list in gap analysis", () => {
       ],
     },
     labels_to_apply: ["enhancement"],
-    should_comment: false,
-    should_update_issue: false,
     should_close: false,
     needs_human_review: false,
   });
@@ -264,53 +260,6 @@ test("requires structured root cause and gap analysis", () => {
         validity: "likely",
       }),
     /gap_analysis/,
-  );
-});
-
-test("allows update comments to be generated when an issue body changes", () => {
-  const diagnosis = {
-    severity: "medium",
-    category: "feature_request",
-    disposition: "actionable",
-    rewrite_mode: "scope_clarification",
-    validity: "likely",
-    summary: "The request is actionable after a small scope clarification.",
-    evidence: ["The issue body identifies the requested capability."],
-    gap_analysis: {
-      current_capability: "The capability is not available.",
-      desired_outcome: "Expose the requested capability.",
-      gap: "No supported interface exposes it.",
-      affected_users: ["Users of the integration"],
-      workaround: null,
-      acceptance_criteria: ["The capability is available through the integration."],
-      constraints: [],
-      smallest_viable_slice: "Add one supported interface.",
-      decision_type: "implementation",
-      evidence: [
-        {
-          source: "issue",
-          claim: "The issue requests the missing capability.",
-          reference: "issue body",
-        },
-      ],
-    },
-    labels_to_apply: ["enhancement"],
-    should_comment: true,
-    should_update_issue: true,
-    proposed_body: "## Summary\n\nExpose the requested capability.",
-    should_close: false,
-    needs_human_review: false,
-  } as IssueTriageDiagnosis;
-
-  assert.doesNotThrow(() => assertDiagnosisAnalysis(diagnosis));
-  assert.throws(
-    () =>
-      assertDiagnosisAnalysis({
-        ...diagnosis,
-        should_update_issue: false,
-        proposed_body: undefined,
-      }),
-    /Standalone triage comments require triage_comment/,
   );
 });
 
@@ -352,10 +301,11 @@ test("defines multiple hardcoded Pierre close comment variants", () => {
     assert.match(comment, /^Hi, I'm Pierre!/);
     assert.match(
       comment,
-      /concrete repository problem|repository change|actionable problem|concrete repository action|concrete problem/,
+      /concrete repository problem|repository change|repository action|concrete problem/,
     );
-    assert.match(comment, /I'm closing (it|this) as invalid/);
-    assert.match(
+    assert.match(comment, /closing (it|this) as invalid/);
+    assert.match(comment, /current|focused|affected users|specific|example/);
+    assert.doesNotMatch(
       comment,
       /mood board|experimental|beautifully abstract|improv theatre|entire plot/,
     );
@@ -480,7 +430,7 @@ test("closes external registry spam using the deterministic GitHub update path",
     session,
     commandEnv,
     context,
-    fixture.expectedTriage.labels_include,
+    fixture.expectedOutcome.labels_include,
   );
   const commentPosted = await closeSpamIssue(
     session,
@@ -752,16 +702,28 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
             "Body only says Python is better than JavaScript.",
             "No concrete problem, user impact, migration plan, or owner is provided.",
           ],
-          labels_to_apply: fixture.expectedTriage.labels_include,
+          gap_analysis: {
+            current_capability: "The repository is implemented in TypeScript.",
+            desired_outcome: "The reporter prefers Python.",
+            gap: "No concrete product or maintenance gap is identified.",
+            affected_users: [],
+            workaround: null,
+            acceptance_criteria: [],
+            constraints: ["No actionable requirement was provided."],
+            smallest_viable_slice: null,
+            decision_type: "product",
+            evidence: [{ source: "reporter", claim: "The report only states a language preference." }],
+          },
+          labels_to_apply: fixture.expectedOutcome.labels_include,
           followup_kind: "missing_info_request",
           followup_rationale: "Explains why the issue cannot proceed.",
           followup_comment:
             "Pierre here.\n\nMerci for the report. I do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
-          should_close: fixture.expectedTriage.should_close,
-          close_reason: fixture.expectedTriage.close_reason,
+          should_close: fixture.expectedOutcome.action === "close",
+          close_reason: fixture.expectedOutcome.close_reason,
           close_comment:
             "Pierre here.\n\nMerci for the report. I do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
-          needs_human_review: fixture.expectedTriage.needs_human_review,
+          needs_human_review: fixture.expectedOutcome.needs_human_review,
         },
       };
     },
@@ -1132,13 +1094,12 @@ test("preserves semantic validation errors when the issue changes during analysi
   const fixture = await readMemberActionableFixture();
   fixture.changeIssueDuringAnalysis = true;
   fixture.modelDiagnosis = {
-    should_update_issue: true,
-    proposed_body: undefined,
+    gap_analysis: undefined,
   };
   fixture.expectedTriage.outcome = "needs_human_review";
   fixture.expectedTriage.comment_posted = false;
   fixture.expectedTriage.issue_changed = true;
-  fixture.expectedTriage.validation_error = /proposed_body/;
+  fixture.expectedTriage.validation_error = /gap_analysis/;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });
@@ -1184,10 +1145,9 @@ test("skips public mutations whenever diagnosis requires human review", async (t
   fixture.modelDiagnosis = {
     severity: "high",
     labels_to_apply: ["enhancement"],
-    should_comment: true,
-    should_update_issue: true,
-    proposed_title: "Potentially sensitive report",
-    proposed_body: "Details that should not be published automatically.",
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds a potentially sensitive finding.",
+    followup_comment: "Potentially sensitive details that should not be posted.",
     needs_human_review: true,
   };
   fixture.expectedTriage.outcome = "needs_human_review";

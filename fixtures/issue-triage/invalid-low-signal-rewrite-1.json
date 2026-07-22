@@ -14,9 +14,25 @@
     "labels": [],
     "body": "python is better than javascript"
   },
-  "expectedTriage": {
-    "labels_include": ["invalid"],
-    "should_close": true,
+  "rubric": {
+    "pass": [
+      "Explains that the request lacks a concrete repository problem or proposed change.",
+      "States what a focused follow-up issue should contain in respectful, plain language."
+    ],
+    "fail": [
+      "Mocks the reporter or treats a language preference as evidence of a technical defect.",
+      "Invents migration requirements or repository findings."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "close",
+    "labels_include": [
+      "invalid"
+    ],
+    "comment_includes": ["concrete", "closing", "current behavior"],
+    "comment_excludes": ["mood board", "improv theatre", "maintainer can take it"],
+    "max_comment_words": 55,
     "close_reason": "not planned",
     "needs_human_review": false
   }

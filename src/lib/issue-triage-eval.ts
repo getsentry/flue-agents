@@ -5,12 +5,36 @@ import {
   issueTriageDiagnosisSchema,
   type IssueTriageDiagnosis,
 } from "./issue-triage-analysis.ts";
-const closeReasonSchema = v.picklist(["not planned"]);
-const followupKindSchema = v.picklist([
-  "technical_diagnosis",
-  "scope_clarification",
-  "missing_info_request",
-]);
+import {
+  issueTriageOutcomeSchema,
+  resolveDuplicateOutcome,
+  resolveIssueTriageOutcome,
+  type IssueTriageOutcome,
+} from "./issue-triage-outcome.ts";
+
+const closeReasonSchema = v.picklist(["not planned", "duplicate"]);
+const duplicateCandidateSchema = v.strictObject({
+  number: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  title: v.string(),
+  url: v.string(),
+  state: v.picklist(["open", "closed"]),
+  confidence: v.picklist(["low", "medium", "high"]),
+  reason: v.string(),
+});
+const duplicateSearchSchema = v.object({
+  status: v.picklist(["duplicate", "unique", "uncertain"]),
+  duplicate: v.optional(duplicateCandidateSchema),
+  candidates: v.array(duplicateCandidateSchema),
+  rationale: v.string(),
+});
+const rubricSchema = v.strictObject({
+  pass: v.pipe(v.array(v.string()), v.minLength(1)),
+  fail: v.optional(v.array(v.string()), []),
+  threshold: v.optional(
+    v.pipe(v.number(), v.minValue(0), v.maxValue(1)),
+    0.75,
+  ),
+});
 const analysisExpectationSchema = v.variant("kind", [
   v.object({
     kind: v.literal("bug"),
@@ -36,6 +60,7 @@ const analysisExpectationSchema = v.variant("kind", [
 ]);
 
 export const issueTriageEvalDiagnosisSchema = issueTriageDiagnosisSchema;
+export const issueTriageEvalOutcomeSchema = issueTriageOutcomeSchema;
 type Diagnosis = IssueTriageDiagnosis;
 
 const authorAssociationSchema = v.picklist([
@@ -66,14 +91,21 @@ export const issueTriageEvalFixtureSchema = v.pipe(
       labels: v.optional(v.array(v.string()), []),
       body: v.string(),
     }),
-    expectedTriage: v.strictObject({
+    duplicateCandidates: v.optional(v.array(duplicateCandidateSchema), []),
+    rubric: v.optional(rubricSchema),
+    expectedAnalysis: v.optional(analysisExpectationSchema),
+    expectedOutcome: v.strictObject({
+      action: v.optional(
+        v.picklist(["none", "label", "comment", "close"]),
+      ),
       labels_include: v.optional(v.array(v.string())),
-      has_followup_comment: v.optional(v.boolean()),
-      followup_kind: v.optional(followupKindSchema),
-      should_close: v.optional(v.boolean()),
+      comment_includes: v.optional(v.array(v.string())),
+      comment_excludes: v.optional(v.array(v.string())),
+      max_comment_words: v.optional(
+        v.pipe(v.number(), v.integer(), v.minValue(1)),
+      ),
       close_reason: v.optional(closeReasonSchema),
       needs_human_review: v.optional(v.boolean()),
-      analysis: v.optional(analysisExpectationSchema),
     }),
   }),
   v.check((fixture) => {
@@ -82,7 +114,7 @@ export const issueTriageEvalFixtureSchema = v.pipe(
     );
     return [
       ...fixture.issue.labels,
-      ...(fixture.expectedTriage.labels_include ?? []),
+      ...(fixture.expectedOutcome.labels_include ?? []),
     ].every((label) => available.has(label.toLowerCase()));
   }, "Issue and expected labels must exist in repositoryLabels."),
 );
@@ -93,12 +125,6 @@ export type IssueTriageEvalFixture = v.InferOutput<
 /** Strictly validates fixture input before either discovery or LLM execution. */
 export function parseIssueTriageEvalFixture(value: unknown) {
   return v.parse(issueTriageEvalFixtureSchema, value);
-}
-
-function includesLabel(diagnosis: Diagnosis, label: string) {
-  return diagnosis.labels_to_apply.some(
-    (candidate) => candidate.toLowerCase() === label.toLowerCase(),
-  );
 }
 
 function addExactExpectation<T>(
@@ -119,7 +145,7 @@ function includesTerms(value: string, terms: string[]) {
 
 function evaluateAnalysisExpectation(
   diagnosis: Diagnosis,
-  expected: IssueTriageEvalFixture["expectedTriage"]["analysis"],
+  expected: IssueTriageEvalFixture["expectedAnalysis"],
   failures: string[],
 ) {
   if (!expected) {
@@ -198,53 +224,74 @@ function evaluateAnalysisExpectation(
   }
 }
 
-function evaluateDiagnosis(
-  diagnosis: Diagnosis,
+export function evaluateIssueTriageOutcome(
+  diagnosis: Diagnosis | undefined,
+  outcome: IssueTriageOutcome,
   fixture: IssueTriageEvalFixture,
 ) {
-  const expected = fixture.expectedTriage;
+  const expected = fixture.expectedOutcome;
   const failures: string[] = [];
   const labels = expected.labels_include ?? [];
 
-  addExactExpectation(
-    failures,
-    "has_followup_comment",
-    Boolean(diagnosis.followup_comment),
-    expected.has_followup_comment,
-  );
-  addExactExpectation(
-    failures,
-    "followup_kind",
-    diagnosis.followup_kind,
-    expected.followup_kind,
-  );
-  addExactExpectation(
-    failures,
-    "should_close",
-    diagnosis.should_close,
-    expected.should_close,
-  );
+  addExactExpectation(failures, "action", outcome.action, expected.action);
   addExactExpectation(
     failures,
     "close_reason",
-    diagnosis.close_reason,
+    outcome.close_reason,
     expected.close_reason,
   );
   addExactExpectation(
     failures,
     "needs_human_review",
-    diagnosis.needs_human_review,
+    outcome.needs_human_review,
     expected.needs_human_review,
   );
 
   for (const label of labels) {
-    if (!includesLabel(diagnosis, label)) {
-      failures.push(`labels_to_apply: expected to include ${label}`);
+    if (
+      !outcome.labels.some(
+        (candidate) => candidate.toLowerCase() === label.toLowerCase(),
+      )
+    ) {
+      failures.push(`labels: expected to include ${label}`);
     }
   }
 
-  evaluateAnalysisExpectation(diagnosis, expected.analysis, failures);
+  const missingCommentTerms = includesTerms(
+    outcome.comment ?? "",
+    expected.comment_includes ?? [],
+  );
+  if (missingCommentTerms.length > 0) {
+    failures.push(`comment: missing ${missingCommentTerms.join(", ")}`);
+  }
 
+  const excluded = (expected.comment_excludes ?? []).filter((term) =>
+    (outcome.comment ?? "").toLowerCase().includes(term.toLowerCase()),
+  );
+  if (excluded.length > 0) {
+    failures.push(`comment: includes forbidden ${excluded.join(", ")}`);
+  }
+  if (expected.max_comment_words !== undefined && outcome.comment) {
+    const words = outcome.comment.trim().split(/\s+/).length;
+    if (words > expected.max_comment_words) {
+      failures.push(
+        `comment: expected at most ${expected.max_comment_words} words, got ${words}`,
+      );
+    }
+  }
+
+  if (diagnosis) {
+    evaluateAnalysisExpectation(
+      diagnosis,
+      fixture.expectedAnalysis,
+      failures,
+    );
+    try {
+      assertDiagnosisAnalysis(diagnosis);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
+  }
   return failures;
 }
 
@@ -290,17 +337,43 @@ export async function runIssueTriageEval(
     `eval-${fixture.source.repository.replace(/[^A-Za-z0-9_.-]+/g, "-")}-${fixture.source.issueNumber}`,
   );
   const context = buildIssueContext(fixture);
+  let duplicateSearch: v.InferOutput<typeof duplicateSearchSchema> = {
+    status: "unique",
+    candidates: [],
+    rationale: "Eval fixture does not provide duplicate candidates.",
+  };
+  if (fixture.duplicateCandidates.length > 0) {
+    const duplicateResponse = await session.skill("issue-triage", {
+      args: {
+        stage: "search-duplicates",
+        issueNumber: fixture.source.issueNumber,
+        repository: fixture.source.repository,
+        context,
+        duplicateCandidates: fixture.duplicateCandidates,
+      },
+      result: duplicateSearchSchema,
+      signal,
+    });
+    duplicateSearch = duplicateResponse.data;
+    if (duplicateSearch.status === "duplicate" && duplicateSearch.duplicate) {
+      return {
+        scenario: `${fixture.source.repository}#${fixture.source.issueNumber}`,
+        description: fixture.description,
+        outcome: resolveDuplicateOutcome(
+          context,
+          duplicateSearch.duplicate.number,
+        ),
+      };
+    }
+  }
+
   const response = await session.skill("issue-triage", {
     args: {
       stage: "diagnose-and-validate",
       issueNumber: fixture.source.issueNumber,
       repository: fixture.source.repository,
       context,
-      duplicateSearch: {
-        status: "unique",
-        candidates: [],
-        rationale: "Eval fixture does not provide duplicate candidates.",
-      },
+      duplicateSearch,
       repositoryContext: {
         checkoutAvailable: false,
         repoPath: null,
@@ -314,18 +387,12 @@ export async function runIssueTriageEval(
     signal,
   });
   const diagnosis = response.data;
-  const failures = evaluateDiagnosis(diagnosis, fixture);
-  try {
-    assertDiagnosisAnalysis(diagnosis);
-  } catch (error) {
-    failures.push(error instanceof Error ? error.message : String(error));
-  }
+  const outcome = resolveIssueTriageOutcome(context, diagnosis);
 
   return {
     scenario: `${fixture.source.repository}#${fixture.source.issueNumber}`,
     description: fixture.description,
-    passed: failures.length === 0,
-    failures,
     diagnosis,
+    outcome,
   };
 }

@@ -256,13 +256,30 @@ function existingLabels(context: IssueContext) {
   return labels;
 }
 
-function filterExistingLabels(context: IssueContext, labels: string[]) {
+function issueLabels(context: IssueContext) {
+  if (!isRecord(context.issue) || !Array.isArray(context.issue.labels)) {
+    return new Set<string>();
+  }
+
+  return new Set(
+    context.issue.labels.flatMap((label) => {
+      if (typeof label === "string") return [label.toLowerCase()];
+      if (isRecord(label) && typeof label.name === "string") {
+        return [label.name.toLowerCase()];
+      }
+      return [];
+    }),
+  );
+}
+
+export function resolveLabelsToApply(context: IssueContext, labels: string[]) {
   const available = existingLabels(context);
+  const applied = issueLabels(context);
   const result = new Map<string, string>();
 
   for (const label of labels) {
     const existing = available.get(label.toLowerCase());
-    if (existing) {
+    if (existing && !applied.has(existing.toLowerCase())) {
       result.set(existing.toLowerCase(), existing);
     }
   }
@@ -324,7 +341,7 @@ export async function applyLabels(
   const repo = repoArg(context.repository);
   const applied: string[] = [];
 
-  for (const label of filterExistingLabels(context, labels)) {
+  for (const label of resolveLabelsToApply(context, labels)) {
     await runGhCommand(
       session,
       commandEnv,
@@ -363,7 +380,7 @@ export async function postComment(
   return true;
 }
 
-function normalizePierreComment(
+export function normalizePierreComment(
   body: string | undefined,
   context: IssueContext,
 ) {
@@ -428,44 +445,47 @@ export const PIERRE_INVALID_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I need one concrete repository problem. At present this is a mood board with an issue number, so I'm closing it as invalid.",
+    "I'm closing this as invalid because it does not identify a concrete repository problem or proposed change. A focused issue should describe the current limitation and the outcome you need.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I checked, but there is no clear bug, repository change, or maintainer action here. Asking maintainers to invent the missing problem is too experimental, so I'm closing this as invalid.",
+    "There is no concrete bug or repository change to act on here, so I'm closing this as invalid. Please open a focused issue with the current behavior and the result you want.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This is beautifully abstract, but the tracker requires one concrete repository problem or change. I found neither, so I'm closing this as invalid.",
+    "This does not describe a concrete repository problem or change, so I'm closing it as invalid. A new issue should include the current limitation, affected users, and desired outcome.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This needs one concrete repository action. The tracker is not an improv theatre for maintainers, so I'm closing this as invalid.",
+    "I cannot identify a repository action from this report, so I'm closing it as invalid. Please describe the problem the current implementation causes and the specific change you need.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. The missing detail is unfortunately the entire plot: a concrete problem maintainers can act on. Without it, I'm closing this as invalid.",
+    "This is missing the concrete problem maintainers would need to act on, so I'm closing it as invalid. Please open a focused issue with an example and the expected result.",
   ].join("\n"),
 ] as const;
 
-function selectStaticPierreComment(variants: readonly string[]) {
+function selectStaticPierreComment(
+  variants: readonly string[],
+  context: IssueContext,
+) {
   if (variants.length === 0) {
     throw new Error("At least one Pierre comment variant is required.");
   }
 
-  return variants[Math.floor(Math.random() * variants.length)] ?? variants[0];
+  return variants[context.issueNumber % variants.length] ?? variants[0];
 }
 
-function buildSpamCloseComment() {
-  return selectStaticPierreComment(PIERRE_SPAM_CLOSE_COMMENTS);
+export function buildSpamCloseComment(context: IssueContext) {
+  return selectStaticPierreComment(PIERRE_SPAM_CLOSE_COMMENTS, context);
 }
 
-function buildInvalidCloseComment() {
-  return selectStaticPierreComment(PIERRE_INVALID_CLOSE_COMMENTS);
+export function buildInvalidCloseComment(context: IssueContext) {
+  return selectStaticPierreComment(PIERRE_INVALID_CLOSE_COMMENTS, context);
 }
 
 /** Closes spam with a static Pierre comment, never generated diagnosis prose. */
@@ -479,7 +499,7 @@ export async function closeSpamIssue(
     session,
     commandEnv,
     context,
-    buildSpamCloseComment(),
+    buildSpamCloseComment(context),
   );
   await runGhCommand(
     session,
@@ -502,7 +522,7 @@ export async function closeInvalidIssue(
     session,
     commandEnv,
     context,
-    buildInvalidCloseComment(),
+    buildInvalidCloseComment(context),
   );
   await runGhCommand(
     session,
