@@ -389,7 +389,18 @@ export async function runIssueTriageEval(
     signal,
   });
   const diagnosis = response.data;
-  const outcome = resolveIssueTriageOutcome(context, diagnosis);
+  let outcome: IssueTriageOutcome;
+  try {
+    assertDiagnosisAnalysis(diagnosis);
+    outcome = resolveIssueTriageOutcome(context, diagnosis);
+  } catch {
+    // Match production: semantic validation failures never reach GitHub.
+    outcome = {
+      action: "none",
+      labels: [],
+      needs_human_review: true,
+    };
+  }
 
   return {
     scenario: `${fixture.source.repository}#${fixture.source.issueNumber}`,

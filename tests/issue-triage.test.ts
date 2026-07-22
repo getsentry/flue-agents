@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import test, { mock, type TestContext } from "node:test";
 import * as v from "valibot";
 
-import { issueTriageEvalDiagnosisSchema } from "../src/lib/issue-triage-eval.ts";
+import {
+  issueTriageEvalDiagnosisSchema,
+  runIssueTriageEval,
+} from "../src/lib/issue-triage-eval.ts";
 import {
   assertDiagnosisAnalysis,
   issueTriageDiagnosisSchema,
@@ -73,6 +76,42 @@ function assertCompleteFollowupSchema(schema: v.GenericSchema) {
 
 test("normalizes incomplete follow-up metadata in evals", () => {
   assertCompleteFollowupSchema(issueTriageEvalDiagnosisSchema);
+});
+
+test("evals block outcomes that production semantic validation rejects", async () => {
+  const fixtureUrl = new URL(
+    "../fixtures/issue-triage/first-time-reporter-actionable.json",
+    import.meta.url,
+  );
+  const fixture = JSON.parse(await readFile(fixtureUrl, "utf8"));
+  const invalidDiagnosis = {
+    severity: "medium",
+    category: "bug",
+    disposition: "actionable",
+    validity: "likely",
+    summary: "The report describes a likely regression.",
+    evidence: ["The reporter supplied a version boundary and workaround."],
+    labels_to_apply: ["bug"],
+    should_close: false,
+    needs_human_review: false,
+  };
+  const session = {
+    skill: async () => ({
+      data: v.parse(issueTriageEvalDiagnosisSchema, invalidDiagnosis),
+    }),
+  };
+
+  const result = await runIssueTriageEval(
+    async () => ({ session: async () => session }),
+    fixture,
+    {},
+  );
+
+  assert.deepEqual(result.outcome, {
+    action: "none",
+    labels: [],
+    needs_human_review: true,
+  });
 });
 
 function mockModuleOnce(
