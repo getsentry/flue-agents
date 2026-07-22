@@ -83,7 +83,6 @@ export const issueTriageEvalFixtureSchema = v.pipe(
       issueNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
       capturedAt: v.string(),
     }),
-    repositoryLabels: v.array(v.string()),
     issue: v.strictObject({
       author: v.string(),
       authorAssociation: authorAssociationSchema,
@@ -96,9 +95,8 @@ export const issueTriageEvalFixtureSchema = v.pipe(
     expectedAnalysis: v.optional(analysisExpectationSchema),
     expectedOutcome: v.strictObject({
       action: v.optional(
-        v.picklist(["none", "label", "comment", "close"]),
+        v.picklist(["none", "comment", "close"]),
       ),
-      labels_include: v.optional(v.array(v.string())),
       comment_includes: v.optional(v.array(v.string())),
       comment_excludes: v.optional(v.array(v.string())),
       max_comment_words: v.optional(
@@ -108,15 +106,6 @@ export const issueTriageEvalFixtureSchema = v.pipe(
       needs_human_review: v.optional(v.boolean()),
     }),
   }),
-  v.check((fixture) => {
-    const available = new Set(
-      fixture.repositoryLabels.map((label) => label.toLowerCase()),
-    );
-    return [
-      ...fixture.issue.labels,
-      ...(fixture.expectedOutcome.labels_include ?? []),
-    ].every((label) => available.has(label.toLowerCase()));
-  }, "Issue and expected labels must exist in repositoryLabels."),
 );
 export type IssueTriageEvalFixture = v.InferOutput<
   typeof issueTriageEvalFixtureSchema
@@ -231,8 +220,6 @@ export function evaluateIssueTriageOutcome(
 ) {
   const expected = fixture.expectedOutcome;
   const failures: string[] = [];
-  const labels = expected.labels_include ?? [];
-
   addExactExpectation(failures, "action", outcome.action, expected.action);
   addExactExpectation(
     failures,
@@ -246,16 +233,6 @@ export function evaluateIssueTriageOutcome(
     outcome.needs_human_review,
     expected.needs_human_review,
   );
-
-  for (const label of labels) {
-    if (
-      !outcome.labels.some(
-        (candidate) => candidate.toLowerCase() === label.toLowerCase(),
-      )
-    ) {
-      failures.push(`labels: expected to include ${label}`);
-    }
-  }
 
   const missingCommentTerms = includesTerms(
     outcome.comment ?? "",
@@ -317,7 +294,6 @@ function buildIssueContext(fixture: IssueTriageEvalFixture) {
       createdAt: fixture.source.capturedAt,
       updatedAt: fixture.source.capturedAt,
     },
-    labels: fixture.repositoryLabels.map((name) => ({ name })),
     fetchedAt: fixture.source.capturedAt,
   };
 }
@@ -397,7 +373,6 @@ export async function runIssueTriageEval(
     // Match production: semantic validation failures never reach GitHub.
     outcome = {
       action: "none",
-      labels: [],
       needs_human_review: true,
     };
   }

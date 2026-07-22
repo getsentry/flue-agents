@@ -113,7 +113,7 @@ curl "http://localhost:3583/workflows/issue-triage?wait=result" \
   -d '{"repository":"getsentry/sentry-mcp","issueNumber":1059,"dryRun":true}'
 ```
 
-Use `dryRun: true` to run duplicate search, repository inspection, and structured diagnosis without labels, comments, edits, or closure. The result includes proposed actions plus `bug_analysis` or `gap_analysis`, which makes behavior review safe before enabling mutations. Omit `dryRun` for the normal mutating workflow.
+Use `dryRun: true` to run duplicate search, repository inspection, and structured diagnosis without comments or closure. The result includes proposed actions plus `bug_analysis` or `gap_analysis`, which makes behavior review safe before enabling mutations. Omit `dryRun` for the normal mutating workflow. Issue labels are always read-only; Pierre never applies or removes them.
 
 The production GitHub App webhook uses `/channels/github/webhook` through Flue's GitHub channel package and starts workflow runs after signature verification. It currently admits `issues.opened` events only. The workflow endpoint is protected and should be used only for authorized manual/operator runs.
 

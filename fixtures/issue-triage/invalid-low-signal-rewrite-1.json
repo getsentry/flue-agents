@@ -6,7 +6,6 @@
     "issueNumber": 1,
     "capturedAt": "2026-06-16T20:54:27Z"
   },
-  "repositoryLabels": ["invalid"],
   "issue": {
     "author": "dcramer",
     "authorAssociation": "MEMBER",
@@ -27,9 +26,6 @@
   },
   "expectedOutcome": {
     "action": "close",
-    "labels_include": [
-      "invalid"
-    ],
     "comment_includes": ["concrete", "closing", "current behavior"],
     "comment_excludes": ["mood board", "improv theatre", "maintainer can take it"],
     "max_comment_words": 55,

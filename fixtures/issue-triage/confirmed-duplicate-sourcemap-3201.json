@@ -6,7 +6,6 @@
     "issueNumber": 3201,
     "capturedAt": "2026-07-21T20:00:00Z"
   },
-  "repositoryLabels": ["bug", "duplicate"],
   "issue": {
     "title": "sourcemaps upload returns 401 after upgrading to 2.48.0",
     "author": "duplicate-report",
@@ -37,7 +36,6 @@
   },
   "expectedOutcome": {
     "action": "close",
-    "labels_include": ["duplicate"],
     "comment_includes": ["#3190", "closing", "updates"],
     "max_comment_words": 45,
     "close_reason": "duplicate",

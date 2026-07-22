@@ -6,7 +6,6 @@
     "issueNumber": 1111,
     "capturedAt": "2026-06-20T18:25:53Z"
   },
-  "repositoryLabels": ["enhancement", "good first issue", "4. Low"],
   "issue": {
     "title": "Expose /issues/{id}/user-reports/ endpoint in MCP",
     "author": "saadk408",

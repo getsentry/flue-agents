@@ -6,7 +6,6 @@
     "issueNumber": 622,
     "capturedAt": "2026-06-19T16:26:54Z"
   },
-  "repositoryLabels": ["enhancement"],
   "issue": {
     "title": "Codify recurring Codex transcript and bugfix findings",
     "author": "dcramer",

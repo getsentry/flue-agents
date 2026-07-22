@@ -29,7 +29,6 @@ export type IssueContext = {
     trusted?: boolean;
   };
   issue: unknown;
-  labels: unknown;
   fetchedAt: string;
 };
 
@@ -240,55 +239,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function existingLabels(context: IssueContext) {
-  if (!Array.isArray(context.labels)) {
-    return new Map<string, string>();
-  }
-
-  const labels = new Map<string, string>();
-  for (const label of context.labels) {
-    if (isRecord(label) && typeof label.name === "string") {
-      labels.set(label.name.toLowerCase(), label.name);
-    }
-  }
-  return labels;
-}
-
-function issueLabels(context: IssueContext) {
-  if (!isRecord(context.issue) || !Array.isArray(context.issue.labels)) {
-    return new Set<string>();
-  }
-
-  return new Set(
-    context.issue.labels.flatMap((label) => {
-      if (typeof label === "string") return [label.toLowerCase()];
-      if (isRecord(label) && typeof label.name === "string") {
-        return [label.name.toLowerCase()];
-      }
-      return [];
-    }),
-  );
-}
-
-export function resolveLabelsToApply(context: IssueContext, labels: string[]) {
-  const available = existingLabels(context);
-  const applied = issueLabels(context);
-  const result = new Map<string, string>();
-
-  for (const label of labels) {
-    const existing = available.get(label.toLowerCase());
-    if (existing && !applied.has(existing.toLowerCase())) {
-      result.set(existing.toLowerCase(), existing);
-    }
-  }
-
-  return Array.from(result.values());
-}
-
-export function findInvalidLabel(context: IssueContext) {
-  return existingLabels(context).get("invalid") ?? null;
-}
-
 export async function runGhCommand(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
@@ -324,28 +274,6 @@ export async function withGhBodyFile<T>(
   } finally {
     await session.shell(`rm -rf ${shellQuote(dir)}`);
   }
-}
-
-export async function applyLabels(
-  session: FlueSession,
-  commandEnv: GithubCommandEnv,
-  context: IssueContext,
-  labels: string[],
-) {
-  const repo = repoArg(context.repository);
-  const applied: string[] = [];
-
-  for (const label of resolveLabelsToApply(context, labels)) {
-    await runGhCommand(
-      session,
-      commandEnv,
-      `gh issue edit ${context.issueNumber}${repo} --add-label ${shellQuote(label)}`,
-      `Applying label ${label}`,
-    );
-    applied.push(label);
-  }
-
-  return applied;
 }
 
 export async function postComment(

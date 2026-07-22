@@ -1,0 +1,38 @@
+{
+  "name": "keeps unverified self-hosted release regression unchanged",
+  "description": "Regression fixture from getsentry/self-hosted#4417. A detailed external report describes a severe upgrade failure and proposes an SSE-S3 explanation, but the available fixture does not independently reproduce or prove the root cause. Triage must remain useful without making release decisions, changing labels, or promoting the hypothesis to a confirmed fact.",
+  "source": {
+    "repository": "getsentry/self-hosted",
+    "issueNumber": 4417,
+    "capturedAt": "2026-07-16T20:10:37Z"
+  },
+  "issue": {
+    "title": "26.7.0: SeaweedFS `weed mini` fails to initialize SSE-S3 Key Manager → nodestore writes fail, save_event ProcessingDeadlineExceeded, install.sh hangs on setlifecycle",
+    "author": "SteliyanPStoyanov",
+    "authorAssociation": "NONE",
+    "labels": [],
+    "body": "### Self-Hosted Version\n\n26.7.0 (upgraded sequentially 26.4.2 → 26.5.0 → 26.6.0 → 26.7.0)\n\n### Environment\n\nARM (aarch64 / linux/arm64) on AWS EC2 t4g.2xlarge with 8 vCPU and 32 GiB RAM. Docker 29.2.1 and Docker Compose 5.1.0. Bundled SeaweedFS, not external S3.\n\n### Steps to Reproduce\n\n1. Start with a healthy 26.6.0 install using bundled SeaweedFS.\n2. Check out 26.7.0 and run install.sh with the documented upgrade flags.\n3. The release migrates SeaweedFS from `weed server` to `weed mini`.\n\n### Expected Result\n\nThe upgrade completes, SeaweedFS starts, the nodestore bucket remains available, and event ingestion continues.\n\n### Actual Result\n\n`weed mini` reports that the SSE-S3 key does not match `/etc/s3/sse_kek`, followed by failures to initialize IAM configuration. S3 volume assignment then times out, nodestore writes fail, `save_event` reaches its processing deadline, new errors stop appearing in the UI, and install.sh retries the bucket lifecycle request indefinitely.\n\nAfter rolling back to 26.6.0, SeaweedFS still logged an SSE-S3 key decoding error before recovering. The reporter infers that the `weed mini` migration may persist bad key state and notes that the invalid `U` byte suggests a non-hex value is being decoded as hex. The reporter offers to provide the complete SeaweedFS startup, S3 API, and filer logs."
+  },
+  "rubric": {
+    "pass": [
+      "Treats the outage and version boundary as reporter-provided evidence for an actionable regression without claiming independent reproduction.",
+      "Keeps the SSE-S3 migration explanation as a hypothesis unless direct evidence in the fixture proves the mechanism.",
+      "Uses the detailed internal diagnosis to identify discriminating validation steps while leaving the public issue unchanged."
+    ],
+    "fail": [
+      "Declares a confirmed SeaweedFS default behavior change or confirmed root cause without reproduction, source inspection, or history evidence.",
+      "Makes release scheduling, release-blocking, priority, severity, or label decisions.",
+      "Posts a public restatement, praise, or cleanup note for the already detailed report."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "none",
+    "needs_human_review": false
+  },
+  "expectedAnalysis": {
+    "kind": "bug",
+    "min_causal_chain_steps": 2,
+    "min_structured_evidence": 2
+  }
+}

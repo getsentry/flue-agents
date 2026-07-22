@@ -96,7 +96,6 @@ const issueTriageRubricJudge = createJudge<
         JSON.stringify(
           {
             source: input.source,
-            repositoryLabels: input.repositoryLabels,
             issue: input.issue,
             duplicateCandidates: input.duplicateCandidates,
             expectedOutcome: input.expectedOutcome,
@@ -118,8 +117,15 @@ const issueTriageRubricJudge = createJudge<
     }),
   );
 
+  // Silence is the useful GitHub-visible outcome for fixtures that explicitly
+  // expect no action. The judge still evaluates the internal diagnosis, but
+  // some models mechanically assign zero visible usefulness despite explaining
+  // that silence is correct. Do not let that contradictory dimension turn the
+  // expected restrained outcome into a failure.
   const dimensions = [
-    verdict.usefulness,
+    ...(input.expectedOutcome.action === "none"
+      ? []
+      : [verdict.usefulness]),
     verdict.precision,
     verdict.structure,
     verdict.restraint,

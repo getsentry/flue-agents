@@ -6,7 +6,6 @@
     "issueNumber": 1059,
     "capturedAt": "2026-06-07T13:39:51Z"
   },
-  "repositoryLabels": ["invalid"],
   "issue": {
     "title": "Your project is now listed on CodeGuilds",
     "author": "xdevsapps",
@@ -27,7 +26,6 @@
   },
   "expectedOutcome": {
     "action": "close",
-    "labels_include": ["invalid"],
     "comment_includes": ["outreach", "closing", "invalid"],
     "max_comment_words": 45,
     "close_reason": "not planned",

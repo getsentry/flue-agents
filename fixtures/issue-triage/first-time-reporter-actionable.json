@@ -1,12 +1,11 @@
 {
   "name": "preserves actionable first-time report without rewriting",
-  "description": "A detailed first-time bug report is already actionable. Triage should preserve the reporter's content, apply the missing bug label, and avoid a restatement comment.",
+  "description": "A detailed first-time bug report is already actionable. Triage should preserve the reporter's content and avoid a restatement comment.",
   "source": {
     "repository": "getsentry/sentry-cli",
     "issueNumber": 3200,
     "capturedAt": "2026-07-21T18:00:00Z"
   },
-  "repositoryLabels": ["bug"],
   "issue": {
     "title": "broken",
     "author": "cli-reporter",
@@ -17,7 +16,7 @@
   "rubric": {
     "pass": [
       "Treats the report as an actionable regression and preserves the reporter-authored title and body unchanged.",
-      "Applies the existing bug label without posting a public restatement or cleanup note.",
+      "Leaves labels untouched and does not post a public restatement or cleanup note.",
       "Keeps versions, platform, command, error, and workaround as reporter-provided evidence rather than claiming independent verification."
     ],
     "fail": [
@@ -27,8 +26,7 @@
     "threshold": 0.8
   },
   "expectedOutcome": {
-    "action": "label",
-    "labels_include": ["bug"],
+    "action": "none",
     "needs_human_review": false
   }
 }

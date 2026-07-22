@@ -14,7 +14,6 @@ import * as v from "valibot";
 
 import issueTriageAgent from "../agents/issue-triage.ts";
 import {
-  applyLabels,
   type GithubCommandEnv,
   resolveGithubCommandEnv,
   type IssueContext,
@@ -272,7 +271,6 @@ function buildDiagnosisFailure(error: unknown): Diagnosis {
     summary:
       "Automated triage could not complete, so the issue is left unchanged for maintainer review.",
     evidence: [summarizeAgentFailure(error)],
-    labels_to_apply: [],
     should_close: false,
     needs_human_review: true,
   };
@@ -383,13 +381,6 @@ async function closeDuplicate(
   duplicate: v.InferOutput<typeof duplicateCandidateSchema>,
 ) {
   const outcome = resolveDuplicateOutcome(context, duplicate.number);
-  const labelsApplied = await applyLabels(
-    session,
-    commandEnv,
-    context,
-    outcome.labels,
-  );
-
   const commentPosted = await postComment(
     session,
     commandEnv,
@@ -403,7 +394,7 @@ async function closeDuplicate(
     "Closing duplicate issue",
   );
 
-  return { labelsApplied, commentPosted };
+  return { commentPosted };
 }
 
 async function applyTriageUpdate(
@@ -439,12 +430,6 @@ async function applyTriageUpdate(
     };
   }
 
-  const labelsApplied = await applyLabels(
-    session,
-    commandEnv,
-    context,
-    outcome.labels,
-  );
   let commentPosted = false;
 
   if (outcome.action === "close") {
@@ -464,7 +449,7 @@ async function applyTriageUpdate(
     return {
       title_updated: false,
       body_updated: false,
-      labels_applied: labelsApplied,
+      labels_applied: [],
       comment_posted: commentPosted,
       issue_closed: true,
       closure_kind: outcome.closure_kind,
@@ -486,22 +471,17 @@ async function applyTriageUpdate(
     );
   }
 
-  const changed = [
-    labelsApplied.length > 0 ? "labels" : null,
-    commentPosted ? "comment" : null,
-  ].filter(Boolean);
-
   return {
     title_updated: false,
     body_updated: false,
-    labels_applied: labelsApplied,
+    labels_applied: [],
     comment_posted: commentPosted,
     issue_closed: false,
     needs_human_review: outcome.needs_human_review,
     summary: outcome.needs_human_review
       ? "Skipped unsafe close request and left the issue open for maintainer review."
-      : changed.length > 0
-        ? `Updated issue ${changed.join(", ")}.`
+      : commentPosted
+        ? "Updated issue comment."
         : "No issue update was needed.",
   };
 }
@@ -525,16 +505,9 @@ async function readIssueContext(
     issueNumber,
     repository,
   );
-  const labels = await readJsonCommand(
-    session,
-    commandEnv,
-    `gh label list${repo} --limit 200 --json name,description`,
-    "Fetching repository labels",
-  );
   const context: IssueContext = {
     issueNumber,
     issue,
-    labels,
     fetchedAt: new Date().toISOString(),
   };
 
@@ -764,7 +737,7 @@ export async function run({
         };
       }
 
-      const { labelsApplied, commentPosted } = await closeDuplicate(
+      const { commentPosted } = await closeDuplicate(
         session,
         commandEnv,
         closureContext,
@@ -774,7 +747,6 @@ export async function run({
         issueNumber,
         repository,
         duplicateNumber: duplicateSearch.duplicate.number,
-        labelsApplied,
       });
 
       return {
@@ -784,7 +756,7 @@ export async function run({
           { name: "close-duplicate", result: "closed" },
         ],
         duplicate: duplicateSearch.duplicate,
-        labels_applied: labelsApplied,
+        labels_applied: [],
         comment_posted: commentPosted,
         issue_closed: true,
         needs_human_review: false,
@@ -885,7 +857,6 @@ export async function run({
       category: diagnosis.category,
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
-      labels_proposed: proposedOutcome.labels,
       labels_applied: [],
       comment_posted: false,
       title_updated: false,
@@ -912,14 +883,12 @@ export async function run({
       issueChanged
         ? {
             action: "none" as const,
-            labels: [],
             needs_human_review: true,
           }
         : duplicateOutcome ??
           (diagnosisValidationError
             ? {
                 action: "none" as const,
-                labels: [],
                 needs_human_review: true,
               }
             : proposedOutcome);
@@ -943,7 +912,6 @@ export async function run({
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
       duplicate: duplicateSearch.duplicate,
-      labels_proposed: resolvedOutcome.labels,
       comment_proposed: resolvedOutcome.comment,
       should_close: resolvedOutcome.action === "close",
       close_reason: resolvedOutcome.close_reason,

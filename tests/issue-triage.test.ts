@@ -17,7 +17,6 @@ import {
   shouldCloseAsSpam,
 } from "../src/lib/issue-triage-close-decision.ts";
 import {
-  applyLabels,
   closeSpamIssue,
   PIERRE_INVALID_CLOSE_COMMENTS,
   PIERRE_SPAM_CLOSE_COMMENTS,
@@ -40,7 +39,6 @@ const baseDiagnosis = {
   validity: "likely",
   summary: "Clear request.",
   evidence: [],
-  labels_to_apply: [],
   should_close: false,
   needs_human_review: false,
 } as const;
@@ -91,7 +89,6 @@ test("evals block outcomes that production semantic validation rejects", async (
     validity: "likely",
     summary: "The report describes a likely regression.",
     evidence: ["The reporter supplied a version boundary and workaround."],
-    labels_to_apply: ["bug"],
     should_close: false,
     needs_human_review: false,
   };
@@ -109,7 +106,6 @@ test("evals block outcomes that production semantic validation rejects", async (
 
   assert.deepEqual(result.outcome, {
     action: "none",
-    labels: [],
     needs_human_review: true,
   });
 });
@@ -214,18 +210,10 @@ test("requires explicit closure approval", () => {
     disposition: "spam",
     severity: "low",
     category: "maintenance",
-    labels_to_apply: ["invalid"],
     needs_human_review: false,
   };
-  const context: IssueContext = {
-    issueNumber: 1,
-    issue: {},
-    labels: [{ name: "invalid" }],
-    fetchedAt: "2026-07-15T00:00:00Z",
-  };
-
   assert.equal(shouldCloseAsSpam(diagnosis), false);
-  assert.equal(shouldCloseAsInvalidLowSignal(context, diagnosis), false);
+  assert.equal(shouldCloseAsInvalidLowSignal(diagnosis), false);
   assert.equal(shouldCloseAsSpam({ ...diagnosis, should_close: true }), true);
 });
 
@@ -237,7 +225,6 @@ test("requires close_reason in structured output when closing", () => {
     validity: "likely",
     summary: "Automated external promotion.",
     evidence: ["The issue says it was opened automatically."],
-    labels_to_apply: ["invalid"],
     should_close: true,
     close_comment: "Closing this automated promotion as not planned.",
     needs_human_review: false,
@@ -271,7 +258,6 @@ test("accepts affected users as a list in gap analysis", () => {
         },
       ],
     },
-    labels_to_apply: ["enhancement"],
     should_close: false,
     needs_human_review: false,
   });
@@ -287,7 +273,6 @@ test("requires structured root cause and gap analysis", () => {
     validity: "confirmed",
     summary: "A bug exists.",
     evidence: ["The source path proves the behavior."],
-    labels_to_apply: [],
     should_close: false,
     needs_human_review: false,
   } as IssueTriageDiagnosis;
@@ -314,6 +299,22 @@ test("keeps issue triage exposed only through the workflow route", async () => {
 
   assert.doesNotMatch(agentSource, /export\s+const\s+route\b/);
   assert.match(workflowSource, /export\s+const\s+route\b/);
+});
+
+test("does not expose or execute label mutations", async () => {
+  const paths = [
+    new URL("../src/lib/issue-triage-analysis.ts", import.meta.url),
+    new URL("../src/lib/issue-triage-github.ts", import.meta.url),
+    new URL("../src/lib/issue-triage-outcome.ts", import.meta.url),
+    new URL("../src/skills/issue-triage/SKILL.md", import.meta.url),
+    new URL("../src/workflows/issue-triage.ts", import.meta.url),
+  ];
+  const sources = await Promise.all(paths.map((path) => readFile(path, "utf8")));
+  const source = sources.join("\n");
+
+  assert.doesNotMatch(source, /labels_to_apply/);
+  assert.doesNotMatch(source, /gh label list/);
+  assert.doesNotMatch(source, /--add-label/);
 });
 
 test("defines multiple hardcoded Pierre close comment variants", () => {
@@ -385,7 +386,6 @@ test("normalizes Pierre comments once before posting", async () => {
     issueNumber: 1,
     reporter: { association: "MEMBER", trusted: true },
     issue: {},
-    labels: [],
     fetchedAt: "2026-07-10T00:00:00Z",
   };
 
@@ -472,16 +472,9 @@ test("closes external registry spam using the deterministic GitHub update path",
       body: fixture.issue.body,
       state: "open",
     },
-    labels: fixture.repositoryLabels.map((name: string) => ({ name })),
     fetchedAt: fixture.source.capturedAt,
   };
 
-  const labelsApplied = await applyLabels(
-    session,
-    commandEnv,
-    context,
-    fixture.expectedOutcome.labels_include,
-  );
   const commentPosted = await closeSpamIssue(
     session,
     commandEnv,
@@ -493,15 +486,8 @@ test("closes external registry spam using the deterministic GitHub update path",
     GH_TOKEN: "installation-token",
     GITHUB_TOKEN: "installation-token",
   });
-  assert.deepEqual(labelsApplied, ["invalid"]);
   assert.equal(commentPosted, true);
-  assert.ok(
-    shellCalls.some(
-      ({ command }) =>
-        command ===
-        "gh issue edit 1059 --repo 'getsentry/sentry-mcp' --add-label 'invalid'",
-    ),
-  );
+  assert.ok(shellCalls.every(({ command }) => !command.includes("--add-label")));
   assert.ok(
     shellCalls.some(
       ({ command }) =>
@@ -600,10 +586,6 @@ test("ignores issues authored by github-actions before agent work", async (t) =>
         };
       }
 
-      if (command.startsWith("gh label list")) {
-        return { exitCode: 0, stdout: "[]", stderr: "" };
-      }
-
       throw new Error(`unexpected shell command: ${command}`);
     },
     skill: async () => {
@@ -678,10 +660,6 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
   );
   const shellCalls: ShellCall[] = [];
   const files = new Map<string, string>();
-  const labels = fixture.repositoryLabels.map((name: string) => ({
-    name,
-    description: "This doesn't seem right",
-  }));
   const issue = {
     title: fixture.issue.title,
     body: fixture.issue.body,
@@ -700,10 +678,6 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
 
       if (command.startsWith("gh issue view 1")) {
         return { exitCode: 0, stdout: JSON.stringify(issue), stderr: "" };
-      }
-
-      if (command.startsWith("gh label list")) {
-        return { exitCode: 0, stdout: JSON.stringify(labels), stderr: "" };
       }
 
       if (command.startsWith("gh search issues")) {
@@ -764,7 +738,6 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
             decision_type: "product",
             evidence: [{ source: "reporter", claim: "The report only states a language preference." }],
           },
-          labels_to_apply: fixture.expectedOutcome.labels_include,
           followup_kind: "missing_info_request",
           followup_rationale: "Explains why the issue cannot proceed.",
           followup_comment:
@@ -809,13 +782,7 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
   assert.equal(result.closure_kind, "invalid");
   assert.equal(result.needs_human_review, false);
   assert.equal(skillCallCount, 2);
-  assert.ok(
-    shellCalls.some(
-      ({ command }) =>
-        command ===
-        "gh issue edit 1 --repo 'getsentry/flue-agents' --add-label 'invalid'",
-    ),
-  );
+  assert.ok(shellCalls.every(({ command }) => !command.includes("--add-label")));
   assert.ok(
     shellCalls.some(
       ({ command }) =>
@@ -946,10 +913,6 @@ async function runMemberCommentSuppressionFixture(
         };
       }
 
-      if (command.startsWith("gh label list")) {
-        return { exitCode: 0, stdout: JSON.stringify(labels), stderr: "" };
-      }
-
       if (command.startsWith("gh search issues")) {
         return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
       }
@@ -1010,7 +973,6 @@ async function runMemberCommentSuppressionFixture(
             },
           ],
         },
-        labels_to_apply: [],
         followup_kind: "scope_clarification",
         followup_rationale:
           "The model attempted to add a public note, but it adds no new action.",
@@ -1079,7 +1041,6 @@ async function runMemberCommentSuppressionFixture(
     if (fixture.expectedTriage.issue_changed) {
       assert.equal(result.needs_human_review, true);
     }
-    assert.deepEqual(result.labels_proposed, []);
   }
   if (fixture.expectedTriage.outcome === "needs_human_review") {
     assert.deepEqual(result.labels_applied, []);
@@ -1095,6 +1056,13 @@ async function runMemberCommentSuppressionFixture(
         (!command.includes(" --title ") && !command.includes(" --body-file ")),
     ),
     "append-only triage must never edit reporter-authored title or body",
+  );
+  assert.ok(
+    shellCalls.every(
+      ({ command }) =>
+        !command.startsWith("gh label list") && !command.includes("--add-label"),
+    ),
+    "issue triage must never enumerate or mutate repository labels",
   );
   assert.ok(
     expectedCommentPosted
@@ -1173,7 +1141,6 @@ test("reports resolved trusted-reporter actions during dry runs", async (t) => {
   fixture.expectedTriage.comment_posted = false;
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
-  assert.deepEqual(result.labels_proposed, []);
   assert.equal(result.comment_proposed, undefined);
   assert.equal(result.should_close, false);
   assert.equal(result.needs_human_review, false);
@@ -1219,7 +1186,6 @@ test("reports no proposed mutations for human-review dry runs", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.dryRun = true;
   fixture.modelDiagnosis = {
-    labels_to_apply: ["enhancement"],
     followup_kind: "technical_diagnosis",
     followup_rationale: "Adds a potentially sensitive finding.",
     followup_comment: "Potentially sensitive details that should not be posted.",
@@ -1230,7 +1196,6 @@ test("reports no proposed mutations for human-review dry runs", async (t) => {
   fixture.expectedTriage.needs_human_review = true;
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
-  assert.deepEqual(result.labels_proposed, []);
   assert.equal(result.comment_proposed, undefined);
   assert.equal(result.should_close, false);
   assert.equal(result.needs_human_review, true);
@@ -1258,7 +1223,6 @@ test("runs full diagnosis for duplicate dry runs without mutating issues", async
   fixture.expectedTriage.duplicate = duplicate;
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
-  assert.deepEqual(result.labels_proposed, []);
   assert.match(result.comment_proposed, /same issue as #456/);
   assert.equal(result.close_reason, "duplicate");
   assert.equal(result.should_close, true);
@@ -1326,7 +1290,6 @@ test("reports no proposed duplicate closure when the issue changes during a dry 
   fixture.expectedTriage.duplicate = duplicate;
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
-  assert.deepEqual(result.labels_proposed, []);
   assert.equal(result.comment_proposed, undefined);
   assert.equal(result.should_close, false);
   assert.equal(result.needs_human_review, true);
@@ -1349,7 +1312,6 @@ test("skips public mutations whenever diagnosis requires human review", async (t
   const fixture = await readMemberActionableFixture();
   fixture.modelDiagnosis = {
     severity: "high",
-    labels_to_apply: ["enhancement"],
     followup_kind: "technical_diagnosis",
     followup_rationale: "Adds a potentially sensitive finding.",
     followup_comment: "Potentially sensitive details that should not be posted.",
@@ -1690,16 +1652,6 @@ test("returns a complete result after closing a duplicate", async (t) => {
         };
       }
 
-      if (command.startsWith("gh label list")) {
-        return {
-          exitCode: 0,
-          stdout: JSON.stringify([
-            { name: "duplicate", description: "Duplicate issue" },
-          ]),
-          stderr: "",
-        };
-      }
-
       if (command.startsWith("gh search issues")) {
         return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
       }
@@ -1749,7 +1701,7 @@ test("returns a complete result after closing a duplicate", async (t) => {
   assert.equal(result.issue_closed, true);
   assert.equal(result.needs_human_review, false);
   assert.equal(result.comment_posted, true);
-  assert.deepEqual(result.labels_applied, ["duplicate"]);
+  assert.deepEqual(result.labels_applied, []);
   assert.ok(
     shellCalls.some(
       ({ command }) =>
@@ -1791,7 +1743,6 @@ test("skips duplicate closure when the issue is already closed at mutation time"
     confidence: "high",
     reason: "Same underlying report.",
   };
-  const labels = [{ name: "duplicate", description: "Duplicate issue" }];
   const session = {
     shell: async (command: string, options?: { env?: Record<string, string> }) => {
       shellCalls.push({ command, env: options?.env });
@@ -1813,10 +1764,6 @@ test("skips duplicate closure when the issue is already closed at mutation time"
           }),
           stderr: "",
         };
-      }
-
-      if (command.startsWith("gh label list")) {
-        return { exitCode: 0, stdout: JSON.stringify(labels), stderr: "" };
       }
 
       if (command.startsWith("gh search issues")) {
