@@ -306,33 +306,6 @@ function issueSnapshot(context: IssueContext) {
   });
 }
 
-function getIssueAuthorAssociation(context: IssueContext) {
-  if (context.reporter?.association) {
-    return normalizeAuthorAssociation(context.reporter.association);
-  }
-
-  if (!isRecord(context.issue)) {
-    return null;
-  }
-
-  if (typeof context.issue.authorAssociation === "string") {
-    return normalizeAuthorAssociation(context.issue.authorAssociation);
-  }
-
-  if (typeof context.issue.author_association === "string") {
-    return normalizeAuthorAssociation(context.issue.author_association);
-  }
-
-  if (
-    isRecord(context.issue.author) &&
-    typeof context.issue.author.association === "string"
-  ) {
-    return normalizeAuthorAssociation(context.issue.author.association);
-  }
-
-  return null;
-}
-
 async function readJsonCommand(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
@@ -925,6 +898,12 @@ export async function run({
   }
 
   if (dryRun) {
+    const duplicateOutcome =
+      duplicateSearch.status === "duplicate" && duplicateSearch.duplicate
+        ? resolveDuplicateOutcome(updateContext, duplicateSearch.duplicate.number)
+        : undefined;
+    const dryRunOutcome = duplicateOutcome ?? proposedOutcome;
+
     return {
       outcome: "dry_run",
       steps: [
@@ -934,17 +913,20 @@ export async function run({
           result: repositoryContext.checkoutAvailable ? "ready" : "unavailable",
         },
         { name: "diagnose-and-validate", result: diagnosis.validity },
-        { name: "apply-triage-update", result: "skipped: dry run" },
+        {
+          name: duplicateOutcome ? "close-duplicate" : "apply-triage-update",
+          result: "skipped: dry run",
+        },
       ],
       severity: diagnosis.severity,
       category: diagnosis.category,
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
       duplicate: duplicateSearch.duplicate,
-      labels_proposed: proposedOutcome.labels,
-      comment_proposed: proposedOutcome.comment,
-      should_close: proposedOutcome.action === "close",
-      close_reason: proposedOutcome.close_reason,
+      labels_proposed: dryRunOutcome.labels,
+      comment_proposed: dryRunOutcome.comment,
+      should_close: dryRunOutcome.action === "close",
+      close_reason: dryRunOutcome.close_reason,
       labels_applied: [],
       comment_posted: false,
       title_updated: false,
@@ -959,7 +941,9 @@ export async function run({
         ? "Skipped all GitHub mutations because this was a dry run; the issue changed during analysis, so the proposed diagnosis requires human review."
         : diagnosisValidationError
           ? "Skipped all GitHub mutations because this was a dry run; the proposed diagnosis also requires human review after failing semantic validation."
-          : "Skipped all GitHub mutations because this was a dry run.",
+          : duplicateOutcome
+            ? `Skipped closing this issue as a duplicate of #${duplicateSearch.duplicate?.number} because this was a dry run.`
+            : "Skipped all GitHub mutations because this was a dry run.",
       evidence: diagnosis.evidence,
       validation_error: diagnosisValidationError,
       issue_changed: issueChanged,

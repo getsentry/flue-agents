@@ -1055,6 +1055,8 @@ async function runMemberCommentSuppressionFixture(
       ),
     );
   }
+
+  return result;
 }
 
 test("returns complete dry-run output when the issue changes during analysis", async (t) => {
@@ -1125,7 +1127,18 @@ test("runs full diagnosis for duplicate dry runs without mutating issues", async
   fixture.expectedTriage.comment_posted = false;
   fixture.expectedTriage.duplicate = duplicate;
 
-  await runMemberCommentSuppressionFixture(t, fixture);
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.should_comment, true);
+  assert.equal(result.should_update_issue, false);
+  assert.equal(result.should_close, true);
+  assert.ok(
+    result.steps.some(
+      (step: { name: string; result: string }) =>
+        step.name === "close-duplicate" && step.result === "skipped: dry run",
+    ),
+  );
+  assert.match(result.update_summary, /duplicate of #456/);
 });
 
 test("preserves diagnoses that fail semantic validation without mutating issues", async (t) => {
@@ -1501,7 +1514,13 @@ test("returns a complete result after closing a duplicate", async (t) => {
   assert.equal(result.needs_human_review, false);
   assert.equal(result.comment_posted, true);
   assert.deepEqual(result.labels_applied, ["duplicate"]);
-  assert.ok(shellCalls.some(({ command }) => command.startsWith("gh issue close")));
+  assert.ok(
+    shellCalls.some(
+      ({ command }) =>
+        command ===
+        "gh issue close 123 --repo 'getsentry/example' --reason duplicate --duplicate-of 456",
+    ),
+  );
 });
 
 test("skips duplicate closure when the issue is already closed at mutation time", async (t) => {

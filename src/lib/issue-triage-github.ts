@@ -35,8 +35,6 @@ export type IssueContext = {
 
 type SpamCloseDiagnosis = unknown;
 
-type IssueCloseDiagnosis = unknown;
-
 export function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -506,29 +504,6 @@ export async function closeSpamIssue(
     commandEnv,
     `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote("not planned")}`,
     "Closing spam issue",
-  );
-
-  return commentPosted;
-}
-
-/** Closes invalid low-signal issues with a static Pierre comment. */
-export async function closeInvalidIssue(
-  session: FlueSession,
-  commandEnv: GithubCommandEnv,
-  context: IssueContext,
-  _diagnosis: IssueCloseDiagnosis,
-) {
-  const commentPosted = await postComment(
-    session,
-    commandEnv,
-    context,
-    buildInvalidCloseComment(context),
-  );
-  await runGhCommand(
-    session,
-    commandEnv,
-    `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote("not planned")}`,
-    "Closing invalid issue",
   );
 
   return commentPosted;
