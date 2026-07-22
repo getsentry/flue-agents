@@ -225,8 +225,8 @@ export async function runIssueTriageEval(
   issueTriageAgent: unknown,
 ) {
   // Start the server-side deadline before agent/session setup so cancellation
-  // finishes inside the eval client's 60-second ceiling.
-  const signal = AbortSignal.timeout(55_000);
+  // finishes inside the eval client's 90-second ceiling.
+  const signal = AbortSignal.timeout(85_000);
   const fixture = parseIssueTriageEvalFixture(payload);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(

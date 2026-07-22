@@ -1,7 +1,6 @@
 name: Evals
 
 permissions:
-  checks: write
   contents: read
 
 on:
@@ -41,11 +40,14 @@ jobs:
           fi
 
       - name: Run evals
-        run: pnpm evals
+        run: |
+          pnpm exec vitest run --config vitest.evals.config.ts \
+            --reporter=vitest-evals/reporter \
+            --reporter=json \
+            --outputFile.json=vitest-results.json
 
       - name: Publish eval report
         if: always()
         uses: getsentry/vitest-evals@v0
         with:
           results: vitest-results.json
-          publish-check: true

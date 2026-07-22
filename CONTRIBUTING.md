@@ -78,13 +78,14 @@ Override it with `FLUE_TRIAGE_MODEL` in `.env.local` or as a Wrangler secret.
 
 Issue-triage evals run locally with Flue's Node target, so they use OpenRouter
 instead of the Cloudflare Workers AI binding. `pnpm evals` defaults to
-`openrouter/anthropic/claude-haiku-4.5`, which requires `OPENROUTER_API_KEY`.
+`openrouter/moonshotai/kimi-k2.6`, matching the underlying production model and
+requiring `OPENROUTER_API_KEY`.
 
 Configure evals in `.env.local`; the runner loads `.env` first, then
 `.env.local`, with shell variables winning over both:
 
 ```env
-FLUE_TRIAGE_EVAL_MODEL="openrouter/anthropic/claude-haiku-4.5"
+FLUE_TRIAGE_EVAL_MODEL="openrouter/moonshotai/kimi-k2.6"
 OPENROUTER_API_KEY=""
 ```
 
@@ -94,7 +95,7 @@ rejects other providers.
 The eval suite starts one local Flue Node server, then invokes a fresh workflow
 instance per fixture through `@flue/sdk`. Every case uses the configured LLM,
 runs through `vitest-evals`, and may combine deterministic assertions with LLM
-judges. Cases have a hard 60-second timeout.
+judges. Cases have a hard 90-second timeout.
 
 Evals never call GitHub. The server is started without GitHub credentials, and
 all issue context is fixture-backed. Add a JSON file under

@@ -31,12 +31,13 @@ fixture through `@flue/sdk`, and checks stable decision fields through
 pnpm evals
 ```
 
-`pnpm evals` defaults to `openrouter/anthropic/claude-haiku-4.5`, so set
+`pnpm evals` defaults to `openrouter/moonshotai/kimi-k2.6`, matching the
+underlying model used by the production Cloudflare Worker. Set
 `OPENROUTER_API_KEY` in `.env.local` or your shell. The runner loads `.env`
 first, then `.env.local`, with shell variables winning over both. Evals only
 accept `openrouter/...` models; the production `cloudflare/...` model path is
 Cloudflare-target only and is not used for local evals. Each case has a hard
-60-second timeout. The eval server receives no GitHub credentials and never
+90-second timeout. The eval server receives no GitHub credentials and never
 calls GitHub; issue and repository context comes entirely from the fixture.
 
 ## Quick Start

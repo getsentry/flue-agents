@@ -7,6 +7,7 @@ import { cfSandboxToSessionEnv, extend } from "@flue/runtime/cloudflare";
 import * as Sentry from "@sentry/cloudflare";
 
 import { PIERRE_PERSONALITY } from "../lib/pierre.ts";
+import { DEFAULT_ISSUE_TRIAGE_MODEL } from "../lib/issue-triage-model.ts";
 import { getSentryOptions, type SentryEnv } from "../lib/sentry";
 import issueTriage from "../skills/issue-triage/SKILL.md" with { type: "skill" };
 
@@ -23,7 +24,7 @@ export default createAgent<unknown, Env>(({ id, env }) => {
     model:
       env.FLUE_TRIAGE_EVAL_MODEL ??
       env.FLUE_TRIAGE_MODEL ??
-      "cloudflare/@cf/moonshotai/kimi-k2.6",
+      DEFAULT_ISSUE_TRIAGE_MODEL,
     thinkingLevel: "low",
     cwd: "/workspace",
     sandbox: sandboxNamespace
