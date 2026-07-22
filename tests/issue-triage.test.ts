@@ -1177,6 +1177,38 @@ test("runs full diagnosis for duplicate dry runs without mutating issues", async
   assert.match(result.update_summary, /duplicate of #456/);
 });
 
+test("reports no proposed duplicate closure when the issue changes during a dry run", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/sentry-mcp/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  fixture.dryRun = true;
+  fixture.changeIssueDuringAnalysis = true;
+  fixture.duplicateSearch = {
+    status: "duplicate",
+    duplicate,
+    candidates: [duplicate],
+    rationale: "The reports describe the same request.",
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = true;
+  fixture.expectedTriage.duplicate = duplicate;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.should_comment, false);
+  assert.equal(result.should_update_issue, false);
+  assert.equal(result.should_close, false);
+  assert.equal(result.needs_human_review, true);
+  assert.match(result.update_summary, /issue changed during analysis/);
+});
+
 test("preserves diagnoses that fail semantic validation without mutating issues", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.modelDiagnosis = {

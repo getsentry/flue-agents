@@ -903,14 +903,14 @@ export async function run({
       duplicateSearch.status === "duplicate" && duplicateSearch.duplicate
         ? resolveDuplicateOutcome(updateContext, duplicateSearch.duplicate.number)
         : undefined;
-    const resolvedOutcome: IssueTriageOutcome = duplicateOutcome ??
-      (diagnosisValidationError || issueChanged
+    const resolvedOutcome: IssueTriageOutcome =
+      diagnosisValidationError || issueChanged
         ? {
             action: "none" as const,
             labels: [],
-             needs_human_review: true,
-           }
-        : proposedOutcome);
+            needs_human_review: true,
+          }
+        : duplicateOutcome ?? proposedOutcome;
 
     return {
       outcome: "dry_run",
