@@ -390,7 +390,12 @@ async function closeDuplicate(
     outcome.labels,
   );
 
-  await postComment(session, commandEnv, context, outcome.comment);
+  const commentPosted = await postComment(
+    session,
+    commandEnv,
+    context,
+    outcome.comment,
+  );
   await runGhCommand(
     session,
     commandEnv,
@@ -398,7 +403,7 @@ async function closeDuplicate(
     "Closing duplicate issue",
   );
 
-  return labelsApplied;
+  return { labelsApplied, commentPosted };
 }
 
 async function applyTriageUpdate(
@@ -759,7 +764,7 @@ export async function run({
         };
       }
 
-      const labelsApplied = await closeDuplicate(
+      const { labelsApplied, commentPosted } = await closeDuplicate(
         session,
         commandEnv,
         closureContext,
@@ -780,7 +785,7 @@ export async function run({
         ],
         duplicate: duplicateSearch.duplicate,
         labels_applied: labelsApplied,
-        comment_posted: true,
+        comment_posted: commentPosted,
         issue_closed: true,
         needs_human_review: false,
         summary: `Closed as a duplicate of #${duplicateSearch.duplicate.number}.`,
