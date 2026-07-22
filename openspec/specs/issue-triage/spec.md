@@ -250,7 +250,7 @@ The workflow SHALL leave issues unchanged for maintainer review when the triage 
 
 #### Scenario: Diagnosis agent failure
 - **WHEN** the diagnosis stage fails
-- **THEN** the workflow builds a low-severity unknown diagnosis with disposition `unclear`, rewrite mode `none`, validity `unclear`, no labels, no comments, no issue update, and human review required.
+- **THEN** the workflow builds a low-severity unknown diagnosis with disposition `unclear`, validity `unclear`, no labels, no follow-up metadata, no issue mutations, and human review required.
 
 #### Scenario: Provider-specific failure summary
 - **WHEN** the agent failure includes a provider 404 or gateway timeout

@@ -14,6 +14,6 @@
     "body": "## Summary\n\nThe Sentry REST API exposes `GET /api/0/issues/{issue_id}/user-reports/` which returns User Feedback (legacy user reports) attached to a specific error issue. This endpoint is not currently surfaced through any MCP tool, making it impossible for agents to retrieve this data.\n\n## Current behavior\n\nThe MCP API client has no method wrapping this endpoint. The event entry schema also does not model the `user_report` entry type that can appear on error events.\n\n## Gap\n\nWhen an error event has an associated User Feedback submission, agents cannot access that data via MCP.\n\n## Options\n\n* Add a `get_issue_user_reports` tool wrapping `GET /api/0/issues/{issue_id}/user-reports/`\n* Alternatively or additionally, model the `user_report` entry type in the event schema so it surfaces when fetching event details via `get_sentry_resource`"
   },
   "expectedTriage": {
-    "followup_comment": false
+    "has_followup_comment": false
   }
 }

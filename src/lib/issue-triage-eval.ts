@@ -90,7 +90,7 @@ export const issueTriageEvalFixtureSchema = v.pipe(
     }),
     expectedTriage: v.strictObject({
       labels_include: v.optional(v.array(v.string())),
-      followup_comment: v.optional(v.boolean()),
+      has_followup_comment: v.optional(v.boolean()),
       followup_kind: v.optional(followupKindSchema),
       should_close: v.optional(v.boolean()),
       close_reason: v.optional(closeReasonSchema),
@@ -149,9 +149,9 @@ function evaluateDiagnosis(
 
   addExactExpectation(
     failures,
-    "followup_comment",
+    "has_followup_comment",
     Boolean(diagnosis.followup_comment),
-    expected.followup_comment,
+    expected.has_followup_comment,
   );
   addExactExpectation(
     failures,

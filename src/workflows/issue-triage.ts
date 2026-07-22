@@ -1,6 +1,7 @@
 // Owns the bounded issue-triage workflow: it gathers GitHub context, delegates
-// judgment to the triage agent, and keeps Flue's generated Durable Object
-// wrapped with Sentry at the module boundary.
+// judgment to the triage agent, preserves reporter-authored title and body,
+// and keeps Flue's generated Durable Object wrapped with Sentry at the module
+// boundary.
 import type { Sandbox } from "@cloudflare/sandbox";
 import type {
   FlueContext,
@@ -490,20 +491,13 @@ function buildUnsafeCloseComment() {
   ].join("\n");
 }
 
-function selectFollowupComment(
-  diagnosis: Diagnosis,
-  context: IssueContext,
-) {
-  const comment = diagnosis.followup_comment?.trim();
-  if (!comment || !diagnosis.followup_kind || !diagnosis.followup_rationale?.trim()) {
-    return undefined;
-  }
-
+/** Applies trusted-reporter suppression to a schema-validated follow-up. */
+function selectFollowupComment(diagnosis: Diagnosis, context: IssueContext) {
   if (shouldSuppressTriageComment(context, diagnosis)) {
     return undefined;
   }
 
-  return comment;
+  return diagnosis.followup_comment;
 }
 
 async function applyTriageUpdate(

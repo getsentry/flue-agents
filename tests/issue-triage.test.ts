@@ -31,12 +31,12 @@ const baseDiagnosis = {
   needs_human_review: false,
 } as const;
 
-test("requires complete follow-up metadata when a comment is present", () => {
-  const incomplete = v.safeParse(issueTriageEvalDiagnosisSchema, {
+function assertCompleteFollowupSchema(schema: v.GenericSchema) {
+  const incomplete = v.safeParse(schema, {
     ...baseDiagnosis,
     followup_comment: "I found a concrete repository detail.",
   });
-  const complete = v.safeParse(issueTriageEvalDiagnosisSchema, {
+  const complete = v.safeParse(schema, {
     ...baseDiagnosis,
     followup_kind: "technical_diagnosis",
     followup_rationale: "Adds repository evidence.",
@@ -45,6 +45,10 @@ test("requires complete follow-up metadata when a comment is present", () => {
 
   assert.equal(incomplete.success, false);
   assert.equal(complete.success, true);
+}
+
+test("requires complete follow-up metadata in evals", () => {
+  assertCompleteFollowupSchema(issueTriageEvalDiagnosisSchema);
 });
 
 function mockModuleOnce(
@@ -762,7 +766,10 @@ async function runMemberCommentSuppressionFixture(
       },
       rm: async () => {},
     },
-    skill: async (_name: string, options: { args?: { stage?: string } }) => {
+    skill: async (
+      _name: string,
+      options: { args?: { stage?: string }; result: v.GenericSchema },
+    ) => {
       if (options.args?.stage === "search-duplicates") {
         return {
           data: {
@@ -774,23 +781,24 @@ async function runMemberCommentSuppressionFixture(
       }
 
       const modelDiagnosis = fixture.modelDiagnosis ?? {};
+      const responseData = {
+        severity: "low",
+        category: "feature_request",
+        disposition: "actionable",
+        validity: "likely",
+        summary: "The issue is already clear and actionable.",
+        evidence: ["The reporter supplied the relevant context."],
+        labels_to_apply: [],
+        followup_kind: "scope_clarification",
+        followup_rationale:
+          "The model attempted to add a public note, but it adds no new action.",
+        followup_comment: fixture.modelComment,
+        should_close: false,
+        needs_human_review: false,
+        ...modelDiagnosis,
+      };
       return {
-        data: {
-          severity: "low",
-          category: "feature_request",
-          disposition: "actionable",
-          validity: "likely",
-          summary: "The issue is already clear and actionable.",
-          evidence: ["The reporter supplied the relevant context."],
-          labels_to_apply: [],
-          followup_kind: "scope_clarification",
-          followup_rationale:
-            "The model attempted to add a public note, but it adds no new action.",
-          followup_comment: fixture.modelComment,
-          should_close: false,
-          needs_human_review: false,
-          ...modelDiagnosis,
-        },
+        data: v.parse(options.result, responseData),
       };
     },
   } as any;
@@ -820,11 +828,16 @@ async function runMemberCommentSuppressionFixture(
     },
   } as any);
 
-  assert.equal(result.outcome, "triaged");
+  const expectedNeedsHumanReview = fixture.expectedNeedsHumanReview ?? false;
+  assert.equal(
+    result.outcome,
+    expectedNeedsHumanReview ? "needs_human_review" : "triaged",
+  );
   assert.equal(result.comment_posted, fixture.expectedCommentPosted);
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
+  assert.equal(result.needs_human_review, expectedNeedsHumanReview);
   assert.ok(
     shellCalls.every(
       ({ command }) =>
@@ -860,6 +873,14 @@ test("suppresses low-value actionable comments on member feature requests", asyn
 
 test("suppresses praise and restatement comments on member tracking issues", async (t) => {
   await runMemberCommentSuppressionFixture(t, await readMemberTrackingFixture());
+});
+
+test("falls back safely for incomplete production follow-up metadata", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.modelDiagnosis = { followup_kind: undefined };
+  fixture.expectedNeedsHumanReview = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
 });
 
 test("keeps specific missing-info comments for outside contributors", async (t) => {
