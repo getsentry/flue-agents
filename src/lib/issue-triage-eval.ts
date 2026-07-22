@@ -45,6 +45,10 @@ const analysisExpectationSchema = v.variant("kind", [
     min_structured_evidence: v.optional(
       v.pipe(v.number(), v.integer(), v.minValue(1)),
     ),
+    max_affected_locations: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(0)),
+    ),
+    root_cause: v.optional(v.boolean()),
     confidence: v.optional(v.picklist(["low", "medium", "high"])),
   }),
   v.object({
@@ -173,6 +177,20 @@ function evaluateAnalysisExpectation(
         `bug_analysis.evidence: expected at least ${expected.min_structured_evidence} items, got ${analysis.evidence.length}`,
       );
     }
+    if (
+      expected.max_affected_locations !== undefined &&
+      analysis.affected_locations.length > expected.max_affected_locations
+    ) {
+      failures.push(
+        `bug_analysis.affected_locations: expected at most ${expected.max_affected_locations} items, got ${analysis.affected_locations.length}`,
+      );
+    }
+    addExactExpectation(
+      failures,
+      "bug_analysis.root_cause",
+      Boolean(analysis.root_cause?.trim()),
+      expected.root_cause,
+    );
     addExactExpectation(
       failures,
       "bug_analysis.confidence",

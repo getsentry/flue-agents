@@ -91,6 +91,7 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
    - For docs/setup reports, inspect the referenced docs and scripts.
    - For feature requests, determine whether the repo already supports the requested behavior.
    - Separate reporter claims, source facts, command output, history, and inference. Cite file paths and lines or symbols when available.
+   - When no checkout is available, only include an affected path or symbol if the reporter supplied it. Otherwise return an empty `affected_locations` array; never guess repository locations.
    - For bugs, form at least one competing hypothesis when the cause is not direct. Test the cheapest discriminating evidence before settling on a cause.
    - Check whether the available checkout matches the reported version, SHA, environment, configuration, and deployment mode. Record mismatches instead of treating default-branch behavior as decisive.
    - For regressions, inspect relevant history, blame, commits, pull requests, changelog, or release notes when available.
@@ -101,6 +102,7 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
    - If dependencies are missing or validation is too expensive, say so in `evidence` and mark validity conservatively.
 4. Build the category-specific analysis before deciding mutations.
    - For bugs, return `bug_analysis` with observed and expected behavior, reproduction status/details, trigger, affected source locations, a stepwise causal chain, root cause (or null), provenance-tagged evidence, alternatives considered, fix direction, validation plan, and confidence.
+   - Return `root_cause: null` when the mechanism is only a reporter hypothesis or inference without reproduction or direct source/history evidence. Keep plausible mechanisms in the causal chain, alternatives, and validation plan instead of promoting one to fact.
    - Do not use `validity: "confirmed"` unless the behavior was reproduced or direct code-path evidence proves the mechanism. Confirmed bugs require a non-empty root cause, causal chain, and structured evidence.
    - Explain why existing tests or guards missed a confirmed regression when the repository provides enough evidence.
    - For actionable or needs-more-info documentation, feature, support, and maintenance issues, return `gap_analysis`: current capability, desired user outcome, exact gap, affected users, workaround, acceptance criteria, constraints, smallest viable slice, decision type, and provenance-tagged evidence.
@@ -116,6 +118,7 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
 7. Decide whether an additive follow-up comment would help:
    - Never propose or perform edits to the reporter's title or description. They remain the source of truth.
    - Omit `followup_comment`, `followup_kind`, and `followup_rationale` when the issue is already clear and actionable and you found no concrete new evidence.
+   - When no follow-up qualifies, omit all three follow-up fields instead of drafting text for the workflow to suppress.
    - A generic or terse title does not make an issue unclear when the body contains an actionable report.
    - Missing repository access or an unattempted reproduction is an internal validation limit, not a reason to comment when the report is already actionable.
    - Do not comment for formatting or light cleanup alone.

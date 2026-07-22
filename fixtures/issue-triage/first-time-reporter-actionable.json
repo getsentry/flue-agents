@@ -25,6 +25,11 @@
     ],
     "threshold": 0.8
   },
+  "expectedAnalysis": {
+    "kind": "bug",
+    "max_affected_locations": 0,
+    "root_cause": false
+  },
   "expectedOutcome": {
     "action": "none",
     "needs_human_review": false

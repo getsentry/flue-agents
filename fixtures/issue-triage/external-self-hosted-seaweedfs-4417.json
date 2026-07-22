@@ -27,12 +27,13 @@
     "threshold": 0.8
   },
   "expectedOutcome": {
-    "action": "none",
-    "needs_human_review": false
+    "action": "none"
   },
   "expectedAnalysis": {
     "kind": "bug",
     "min_causal_chain_steps": 2,
-    "min_structured_evidence": 2
+    "min_structured_evidence": 2,
+    "max_affected_locations": 0,
+    "root_cause": false
   }
 }

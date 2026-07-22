@@ -4,7 +4,9 @@ import test, { mock, type TestContext } from "node:test";
 import * as v from "valibot";
 
 import {
+  evaluateIssueTriageOutcome,
   issueTriageEvalDiagnosisSchema,
+  parseIssueTriageEvalFixture,
   runIssueTriageEval,
 } from "../src/lib/issue-triage-eval.ts";
 import {
@@ -74,6 +76,61 @@ function assertCompleteFollowupSchema(schema: v.GenericSchema) {
 
 test("normalizes incomplete follow-up metadata in evals", () => {
   assertCompleteFollowupSchema(issueTriageEvalDiagnosisSchema);
+});
+
+test("evals deterministically reject guessed source locations", async () => {
+  const fixtureUrl = new URL(
+    "../fixtures/issue-triage/first-time-reporter-actionable.json",
+    import.meta.url,
+  );
+  const fixture = parseIssueTriageEvalFixture(
+    JSON.parse(await readFile(fixtureUrl, "utf8")),
+  );
+  const diagnosis = v.parse(issueTriageEvalDiagnosisSchema, {
+    severity: "medium",
+    category: "bug",
+    disposition: "actionable",
+    validity: "likely",
+    summary: "The report describes a likely regression.",
+    evidence: ["The reporter supplied a version boundary and workaround."],
+    bug_analysis: {
+      observed: "The upload returns 401 after upgrading.",
+      expected: "The upload succeeds with the same credentials.",
+      reproduction: {
+        status: "not_attempted",
+        details: "No checkout is available.",
+      },
+      trigger: "Upgrade to 2.48.0.",
+      affected_locations: [{ path: "src/api.rs" }],
+      causal_chain: ["An unknown regression changes authentication behavior."],
+      root_cause: "An authentication helper changed.",
+      evidence: [{ source: "reporter", claim: "Downgrading restores uploads." }],
+      alternatives_considered: [],
+      fix_direction: null,
+      validation: [],
+      confidence: "low",
+    },
+    followup_kind: "missing_info_request",
+    followup_rationale: "Requests more diagnostics.",
+    followup_comment: "Please share debug output.",
+    should_close: false,
+    needs_human_review: false,
+  });
+
+  const failures = evaluateIssueTriageOutcome(
+    diagnosis,
+    { action: "none", needs_human_review: false },
+    fixture,
+  );
+
+  assert.ok(
+    failures.some((failure) =>
+      failure.startsWith("bug_analysis.affected_locations:"),
+    ),
+  );
+  assert.ok(
+    failures.some((failure) => failure.startsWith("bug_analysis.root_cause:")),
+  );
 });
 
 test("evals block outcomes that production semantic validation rejects", async () => {

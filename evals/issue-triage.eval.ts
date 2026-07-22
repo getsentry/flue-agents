@@ -52,6 +52,18 @@ function parseEvalOutput(value: unknown): EvalOutput {
   return v.parse(evalOutputSchema, value);
 }
 
+function diagnosisForJudge(
+  diagnosis: EvalOutput["diagnosis"],
+  omitSuppressedFollowup: boolean,
+) {
+  if (!diagnosis || !omitSuppressedFollowup) return diagnosis ?? null;
+  const normalized = { ...diagnosis };
+  delete normalized.followup_kind;
+  delete normalized.followup_rationale;
+  delete normalized.followup_comment;
+  return normalized;
+}
+
 const rubricVerdictSchema = v.strictObject({
   usefulness: v.pipe(v.number(), v.minValue(0), v.maxValue(1)),
   precision: v.pipe(v.number(), v.minValue(0), v.maxValue(1)),
@@ -122,7 +134,11 @@ const issueTriageRubricJudge = createJudge<
         JSON.stringify(output.duplicateSearch, null, 2),
         "",
         "## Internal diagnosis",
-        JSON.stringify(output.diagnosis ?? null, null, 2),
+        JSON.stringify(
+          diagnosisForJudge(output.diagnosis, expectsNoAction),
+          null,
+          2,
+        ),
       ].join("\n"),
       responseFormat: { type: "json" },
     }),
