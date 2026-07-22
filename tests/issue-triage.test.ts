@@ -1106,6 +1106,42 @@ test("preserves semantic validation errors when the issue changes during analysi
   await runMemberCommentSuppressionFixture(t, fixture);
 });
 
+test("reports resolved trusted-reporter actions during dry runs", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.should_comment, false);
+  assert.equal(result.should_update_issue, false);
+  assert.equal(result.should_close, false);
+  assert.equal(result.needs_human_review, false);
+});
+
+test("reports no proposed mutations for human-review dry runs", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.modelDiagnosis = {
+    labels_to_apply: ["enhancement"],
+    should_comment: true,
+    should_update_issue: true,
+    proposed_title: "Potentially sensitive report",
+    proposed_body: "Details that should not be published automatically.",
+    needs_human_review: true,
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.should_comment, false);
+  assert.equal(result.should_update_issue, false);
+  assert.equal(result.should_close, false);
+  assert.equal(result.needs_human_review, true);
+});
+
 test("runs full diagnosis for duplicate dry runs without mutating issues", async (t) => {
   const fixture = await readMemberActionableFixture();
   const duplicate = {

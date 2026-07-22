@@ -32,6 +32,7 @@ import {
 import {
   resolveDuplicateOutcome,
   resolveIssueTriageOutcome,
+  type IssueTriageOutcome,
 } from "../lib/issue-triage-outcome.ts";
 import { getSentryOptions, type SentryEnv } from "../lib/sentry.ts";
 
@@ -902,7 +903,14 @@ export async function run({
       duplicateSearch.status === "duplicate" && duplicateSearch.duplicate
         ? resolveDuplicateOutcome(updateContext, duplicateSearch.duplicate.number)
         : undefined;
-    const dryRunOutcome = duplicateOutcome ?? proposedOutcome;
+    const resolvedOutcome: IssueTriageOutcome = duplicateOutcome ??
+      (diagnosisValidationError || issueChanged
+        ? {
+            action: "none" as const,
+            labels: [],
+             needs_human_review: true,
+           }
+        : proposedOutcome);
 
     return {
       outcome: "dry_run",
@@ -923,19 +931,16 @@ export async function run({
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
       duplicate: duplicateSearch.duplicate,
-      labels_proposed: dryRunOutcome.labels,
-      comment_proposed: dryRunOutcome.comment,
-      should_close: dryRunOutcome.action === "close",
-      close_reason: dryRunOutcome.close_reason,
+      labels_proposed: resolvedOutcome.labels,
+      comment_proposed: resolvedOutcome.comment,
+      should_close: resolvedOutcome.action === "close",
+      close_reason: resolvedOutcome.close_reason,
       labels_applied: [],
       comment_posted: false,
       title_updated: false,
       body_updated: false,
       issue_closed: false,
-      needs_human_review:
-        diagnosis.needs_human_review ||
-        diagnosisValidationError !== undefined ||
-        issueChanged,
+      needs_human_review: resolvedOutcome.needs_human_review,
       summary: diagnosis.summary,
       update_summary: issueChanged
         ? "Skipped all GitHub mutations because this was a dry run; the issue changed during analysis, so the proposed diagnosis requires human review."
