@@ -50,7 +50,13 @@ function assertCompleteFollowupSchema(schema: v.GenericSchema) {
   });
 
   assert.equal(incomplete.followup_comment, undefined);
+  assert.equal("followup_kind" in incomplete, false);
+  assert.equal("followup_rationale" in incomplete, false);
+  assert.equal("followup_comment" in incomplete, false);
   assert.equal(blank.followup_kind, undefined);
+  assert.equal("followup_kind" in blank, false);
+  assert.equal("followup_rationale" in blank, false);
+  assert.equal("followup_comment" in blank, false);
   assert.equal(complete.followup_kind, "technical_diagnosis");
 }
 

@@ -132,12 +132,11 @@ const diagnosisSchema = v.pipe(
       return diagnosis;
     }
 
-    return {
-      ...diagnosis,
-      followup_kind: undefined,
-      followup_rationale: undefined,
-      followup_comment: undefined,
-    };
+    const normalized = { ...diagnosis };
+    delete normalized.followup_kind;
+    delete normalized.followup_rationale;
+    delete normalized.followup_comment;
+    return normalized;
   }),
 );
 type Diagnosis = v.InferOutput<typeof diagnosisSchema>;
