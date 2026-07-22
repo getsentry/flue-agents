@@ -28,7 +28,7 @@
   "expectedOutcome": {
     "action": "close",
     "labels_include": ["invalid"],
-    "comment_includes": ["promotion", "closing", "invalid"],
+    "comment_includes": ["outreach", "closing", "invalid"],
     "max_comment_words": 45,
     "close_reason": "not planned",
     "needs_human_review": false
