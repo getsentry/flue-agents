@@ -285,10 +285,6 @@ export function resolveLabelsToApply(context: IssueContext, labels: string[]) {
   return Array.from(result.values());
 }
 
-export function findDuplicateLabel(context: IssueContext) {
-  return existingLabels(context).get("duplicate") ?? null;
-}
-
 export function findInvalidLabel(context: IssueContext) {
   return existingLabels(context).get("invalid") ?? null;
 }
