@@ -1,6 +1,7 @@
 // Owns the bounded issue-triage workflow: it gathers GitHub context, delegates
-// judgment to the triage agent, and keeps Flue's generated Durable Object
-// wrapped with Sentry at the module boundary.
+// judgment to the triage agent, preserves reporter-authored title and body,
+// and keeps Flue's generated Durable Object wrapped with Sentry at the module
+// boundary.
 import type { Sandbox } from "@cloudflare/sandbox";
 import type {
   FlueContext,
@@ -25,7 +26,6 @@ import {
   repoArg,
   runGhCommand,
   shellQuote,
-  withGhBodyFile,
 } from "../lib/issue-triage-github.ts";
 import {
   shouldCloseAsInvalidLowSignal,
@@ -80,21 +80,11 @@ const dispositionSchema = v.picklist([
   "spam",
   "unclear",
 ]);
-const rewriteModeSchema = v.picklist([
-  "none",
-  "light_cleanup",
+const closeReasonSchema = v.picklist(["not planned"]);
+const followupKindSchema = v.picklist([
   "technical_diagnosis",
   "scope_clarification",
-]);
-const closeReasonSchema = v.picklist(["not planned"]);
-const commentKindSchema = v.picklist([
-  "none",
   "missing_info_request",
-  "concrete_validation",
-  "scope_note",
-  "edit_notice",
-  "duplicate_notice",
-  "closure_notice",
 ]);
 
 const duplicateCandidateSchema = v.object({
@@ -116,28 +106,39 @@ type DuplicateSearch = v.InferOutput<typeof duplicateSearchSchema>;
 type DuplicateCandidate = v.InferOutput<typeof duplicateCandidateSchema>;
 type WorkflowLog = FlueContext<unknown, Env>["log"];
 
-const diagnosisSchema = v.object({
-  severity: severitySchema,
-  category: categorySchema,
-  disposition: dispositionSchema,
-  rewrite_mode: rewriteModeSchema,
-  validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
-  summary: v.string(),
-  evidence: v.array(v.string()),
-  labels_to_apply: v.array(v.string()),
-  should_comment: v.boolean(),
-  comment_kind: v.optional(commentKindSchema),
-  comment_rationale: v.optional(v.string()),
-  should_update_issue: v.boolean(),
-  proposed_title: v.optional(v.string()),
-  proposed_body: v.optional(v.string()),
-  triage_comment: v.optional(v.string()),
-  update_comment: v.optional(v.string()),
-  should_close: v.optional(v.boolean()),
-  close_reason: v.optional(closeReasonSchema),
-  close_comment: v.optional(v.string()),
-  needs_human_review: v.boolean(),
-});
+const diagnosisSchema = v.pipe(
+  v.object({
+    severity: severitySchema,
+    category: categorySchema,
+    disposition: dispositionSchema,
+    validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
+    summary: v.string(),
+    evidence: v.array(v.string()),
+    labels_to_apply: v.array(v.string()),
+    followup_kind: v.optional(followupKindSchema),
+    followup_rationale: v.optional(v.pipe(v.string(), v.trim())),
+    followup_comment: v.optional(v.pipe(v.string(), v.trim())),
+    should_close: v.optional(v.boolean()),
+    close_reason: v.optional(closeReasonSchema),
+    close_comment: v.optional(v.string()),
+    needs_human_review: v.boolean(),
+  }),
+  v.transform((diagnosis) => {
+    if (
+      diagnosis.followup_kind !== undefined &&
+      diagnosis.followup_rationale &&
+      diagnosis.followup_comment
+    ) {
+      return diagnosis;
+    }
+
+    const normalized = { ...diagnosis };
+    delete normalized.followup_kind;
+    delete normalized.followup_rationale;
+    delete normalized.followup_comment;
+    return normalized;
+  }),
+);
 type Diagnosis = v.InferOutput<typeof diagnosisSchema>;
 
 const updateSchema = v.object({
@@ -321,14 +322,11 @@ function buildDiagnosisFailure(error: unknown): Diagnosis {
     severity: "low",
     category: "unknown",
     disposition: "unclear",
-    rewrite_mode: "none",
     validity: "unclear",
     summary:
       "Automated triage could not complete, so the issue is left unchanged for maintainer review.",
     evidence: [summarizeAgentFailure(error)],
     labels_to_apply: [],
-    should_comment: false,
-    should_update_issue: false,
     needs_human_review: true,
   };
 }
@@ -338,20 +336,6 @@ function getIssueState(context: IssueContext) {
     return null;
   }
   return context.issue.state.toLowerCase();
-}
-
-function getIssueTitle(context: IssueContext) {
-  if (!isRecord(context.issue) || typeof context.issue.title !== "string") {
-    return "";
-  }
-  return context.issue.title;
-}
-
-function getIssueBody(context: IssueContext) {
-  if (!isRecord(context.issue) || typeof context.issue.body !== "string") {
-    return "";
-  }
-  return context.issue.body;
 }
 
 function getIssueAuthorAssociation(context: IssueContext) {
@@ -400,8 +384,8 @@ function shouldSuppressTriageComment(
   }
 
   return !(
-    diagnosis.comment_kind === "missing_info_request" ||
-    diagnosis.comment_kind === "concrete_validation"
+    diagnosis.followup_kind === "missing_info_request" ||
+    diagnosis.followup_kind === "technical_diagnosis"
   );
 }
 
@@ -474,52 +458,6 @@ async function readReporterAssociation(
   }
 }
 
-async function editIssueTitle(
-  session: FlueSession,
-  commandEnv: GithubCommandEnv,
-  context: IssueContext,
-  title?: string,
-) {
-  const nextTitle = title?.trim();
-  if (!nextTitle || nextTitle === getIssueTitle(context).trim()) {
-    return false;
-  }
-
-  await runGhCommand(
-    session,
-    commandEnv,
-    `gh issue edit ${context.issueNumber}${repoArg(context.repository)} --title ${shellQuote(nextTitle)}`,
-    "Updating issue title",
-  );
-  return true;
-}
-
-async function editIssueBody(
-  session: FlueSession,
-  commandEnv: GithubCommandEnv,
-  context: IssueContext,
-  body?: string,
-) {
-  const nextBody = body?.trim();
-  if (!nextBody || nextBody === getIssueBody(context).trim()) {
-    return false;
-  }
-
-  await withGhBodyFile(
-    session,
-    `issue-${context.issueNumber}-body`,
-    nextBody,
-    (path) =>
-      runGhCommand(
-        session,
-        commandEnv,
-        `gh issue edit ${context.issueNumber}${repoArg(context.repository)} --body-file ${shellQuote(path)}`,
-        "Updating issue body",
-      ),
-  );
-  return true;
-}
-
 async function closeDuplicate(
   session: FlueSession,
   commandEnv: GithubCommandEnv,
@@ -557,79 +495,13 @@ function buildUnsafeCloseComment() {
   ].join("\n");
 }
 
-function buildIssueUpdateComment(
-  diagnosis: v.InferOutput<typeof diagnosisSchema>,
-) {
-  const evidence = diagnosis.evidence
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 3);
-  const lines = [PIERRE_COMMENT_OPENER, ""];
-
-  switch (diagnosis.rewrite_mode) {
-    case "light_cleanup":
-      lines.push(
-        "I cleaned this up a bit so it is easier to scan without changing the ask.",
-      );
-      break;
-    case "scope_clarification":
-      lines.push(
-        "I trimmed this to the current ask and the missing details.",
-      );
-      break;
-    case "technical_diagnosis":
-      lines.push(
-        "I added the repo context that seemed useful here.",
-      );
-      break;
-    case "none":
-      lines.push("I added a quick triage note for maintainers.");
-      break;
-  }
-
-  if (diagnosis.summary.trim()) {
-    lines.push("", `Current read: ${diagnosis.summary.trim()}`);
-  }
-
-  if (diagnosis.rewrite_mode === "technical_diagnosis" && evidence.length > 0) {
-    lines.push("", "What I checked:");
-    for (const item of evidence) {
-      lines.push(`- ${item}`);
-    }
-  }
-
-  lines.push("", "A maintainer can take it from here.");
-
-  return lines.join("\n");
-}
-
-function selectTriageComment(
-  diagnosis: v.InferOutput<typeof diagnosisSchema>,
-  context: IssueContext,
-  bodyUpdated: boolean,
-) {
-  if (bodyUpdated) {
-    return (
-      diagnosis.update_comment?.trim() ||
-      diagnosis.triage_comment?.trim() ||
-      buildIssueUpdateComment(diagnosis)
-    );
-  }
-
-  if (!diagnosis.should_comment) {
-    return undefined;
-  }
-
-  const comment = diagnosis.triage_comment?.trim();
-  if (!comment) {
-    return undefined;
-  }
-
+/** Applies trusted-reporter suppression to a schema-validated follow-up. */
+function selectFollowupComment(diagnosis: Diagnosis, context: IssueContext) {
   if (shouldSuppressTriageComment(context, diagnosis)) {
     return undefined;
   }
 
-  return comment;
+  return diagnosis.followup_comment;
 }
 
 async function applyTriageUpdate(
@@ -656,8 +528,6 @@ async function applyTriageUpdate(
     context,
     diagnosis.labels_to_apply,
   );
-  let titleUpdated = false;
-  let bodyUpdated = false;
   let commentPosted = false;
 
   if (shouldCloseAsSpam(diagnosis)) {
@@ -704,45 +574,21 @@ async function applyTriageUpdate(
 
   const unsafeCloseRequest = diagnosis.should_close === true;
 
-  if (diagnosis.should_update_issue) {
-    titleUpdated = await editIssueTitle(
-      session,
-      commandEnv,
-      context,
-      diagnosis.proposed_title,
-    );
-    bodyUpdated = await editIssueBody(
-      session,
-      commandEnv,
-      context,
-      diagnosis.proposed_body,
-    );
-
-    const comment = unsafeCloseRequest
-      ? buildUnsafeCloseComment()
-      : selectTriageComment(diagnosis, context, bodyUpdated);
-    if (comment) {
-      commentPosted = await postComment(session, commandEnv, context, comment);
-    }
-  } else {
-    const comment = unsafeCloseRequest
-      ? buildUnsafeCloseComment()
-      : selectTriageComment(diagnosis, context, false);
-    if (comment) {
-      commentPosted = await postComment(session, commandEnv, context, comment);
-    }
+  const comment = unsafeCloseRequest
+    ? buildUnsafeCloseComment()
+    : selectFollowupComment(diagnosis, context);
+  if (comment) {
+    commentPosted = await postComment(session, commandEnv, context, comment);
   }
 
   const changed = [
-    titleUpdated ? "title" : null,
-    bodyUpdated ? "body" : null,
     labelsApplied.length > 0 ? "labels" : null,
     commentPosted ? "comment" : null,
   ].filter(Boolean);
 
   return {
-    title_updated: titleUpdated,
-    body_updated: bodyUpdated,
+    title_updated: false,
+    body_updated: false,
     labels_applied: labelsApplied,
     comment_posted: commentPosted,
     issue_closed: false,
@@ -1071,7 +917,6 @@ export async function run({
       validity: diagnosis.validity,
       needsHumanReview: diagnosis.needs_human_review,
       shouldClose: diagnosis.should_close ?? false,
-      shouldUpdateIssue: diagnosis.should_update_issue,
     });
   } catch (error) {
     log.warn("[issue-triage] Diagnosis failed", {
@@ -1127,7 +972,6 @@ export async function run({
     severity: diagnosis.severity,
     category: diagnosis.category,
     disposition: diagnosis.disposition,
-    rewrite_mode: diagnosis.rewrite_mode,
     validity: diagnosis.validity,
     labels_applied: update.labels_applied,
     comment_posted: update.comment_posted,

@@ -23,45 +23,46 @@ const dispositionSchema = v.picklist([
   "spam",
   "unclear",
 ]);
-const rewriteModeSchema = v.picklist([
-  "none",
-  "light_cleanup",
+const closeReasonSchema = v.picklist(["not planned"]);
+const followupKindSchema = v.picklist([
   "technical_diagnosis",
   "scope_clarification",
-]);
-const closeReasonSchema = v.picklist(["not planned"]);
-const commentKindSchema = v.picklist([
-  "none",
   "missing_info_request",
-  "concrete_validation",
-  "scope_note",
-  "edit_notice",
-  "duplicate_notice",
-  "closure_notice",
 ]);
 
-export const issueTriageEvalDiagnosisSchema = v.object({
-  severity: severitySchema,
-  category: categorySchema,
-  disposition: dispositionSchema,
-  rewrite_mode: rewriteModeSchema,
-  validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
-  summary: v.string(),
-  evidence: v.array(v.string()),
-  labels_to_apply: v.array(v.string()),
-  should_comment: v.boolean(),
-  comment_kind: v.optional(commentKindSchema),
-  comment_rationale: v.optional(v.string()),
-  should_update_issue: v.boolean(),
-  proposed_title: v.optional(v.string()),
-  proposed_body: v.optional(v.string()),
-  triage_comment: v.optional(v.string()),
-  update_comment: v.optional(v.string()),
-  should_close: v.optional(v.boolean()),
-  close_reason: v.optional(closeReasonSchema),
-  close_comment: v.optional(v.string()),
-  needs_human_review: v.boolean(),
-});
+export const issueTriageEvalDiagnosisSchema = v.pipe(
+  v.object({
+    severity: severitySchema,
+    category: categorySchema,
+    disposition: dispositionSchema,
+    validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
+    summary: v.string(),
+    evidence: v.array(v.string()),
+    labels_to_apply: v.array(v.string()),
+    followup_kind: v.optional(followupKindSchema),
+    followup_rationale: v.optional(v.pipe(v.string(), v.trim())),
+    followup_comment: v.optional(v.pipe(v.string(), v.trim())),
+    should_close: v.optional(v.boolean()),
+    close_reason: v.optional(closeReasonSchema),
+    close_comment: v.optional(v.string()),
+    needs_human_review: v.boolean(),
+  }),
+  v.transform((diagnosis) => {
+    if (
+      diagnosis.followup_kind !== undefined &&
+      diagnosis.followup_rationale &&
+      diagnosis.followup_comment
+    ) {
+      return diagnosis;
+    }
+
+    const normalized = { ...diagnosis };
+    delete normalized.followup_kind;
+    delete normalized.followup_rationale;
+    delete normalized.followup_comment;
+    return normalized;
+  }),
+);
 type Diagnosis = v.InferOutput<typeof issueTriageEvalDiagnosisSchema>;
 
 const authorAssociationSchema = v.picklist([
@@ -93,9 +94,8 @@ export const issueTriageEvalFixtureSchema = v.pipe(
     }),
     expectedTriage: v.strictObject({
       labels_include: v.optional(v.array(v.string())),
-      should_comment: v.optional(v.boolean()),
-      comment_kind: v.optional(commentKindSchema),
-      should_update_issue: v.optional(v.boolean()),
+      has_followup_comment: v.optional(v.boolean()),
+      followup_kind: v.optional(followupKindSchema),
       should_close: v.optional(v.boolean()),
       close_reason: v.optional(closeReasonSchema),
       needs_human_review: v.optional(v.boolean()),
@@ -153,21 +153,15 @@ function evaluateDiagnosis(
 
   addExactExpectation(
     failures,
-    "should_comment",
-    diagnosis.should_comment,
-    expected.should_comment,
+    "has_followup_comment",
+    Boolean(diagnosis.followup_comment),
+    expected.has_followup_comment,
   );
   addExactExpectation(
     failures,
-    "comment_kind",
-    diagnosis.comment_kind,
-    expected.comment_kind,
-  );
-  addExactExpectation(
-    failures,
-    "should_update_issue",
-    diagnosis.should_update_issue,
-    expected.should_update_issue,
+    "followup_kind",
+    diagnosis.followup_kind,
+    expected.followup_kind,
   );
   addExactExpectation(
     failures,
@@ -229,9 +223,10 @@ export async function runIssueTriageEval(
   payload: unknown,
   issueTriageAgent: unknown,
 ) {
-  // Start the server-side deadline before agent/session setup so cancellation
-  // finishes inside the eval client's 60-second ceiling.
-  const signal = AbortSignal.timeout(55_000);
+  // Start the server-side deadline before agent/session setup. The surrounding
+  // harness and Vitest deadlines include additional headroom for cancellation
+  // and reporting after the model reaches this limit.
+  const signal = AbortSignal.timeout(120_000);
   const fixture = parseIssueTriageEvalFixture(payload);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(

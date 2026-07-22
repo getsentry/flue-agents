@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test, { mock, type TestContext } from "node:test";
+import * as v from "valibot";
 
+import { issueTriageEvalDiagnosisSchema } from "../src/lib/issue-triage-eval.ts";
 import {
   applyLabels,
   closeSpamIssue,
@@ -17,6 +19,50 @@ type ShellCall = {
   command: string;
   env?: Record<string, string>;
 };
+
+const baseDiagnosis = {
+  severity: "low",
+  category: "feature_request",
+  disposition: "actionable",
+  validity: "likely",
+  summary: "Clear request.",
+  evidence: [],
+  labels_to_apply: [],
+  needs_human_review: false,
+} as const;
+
+function assertCompleteFollowupSchema(schema: v.GenericSchema) {
+  const incomplete = v.parse(schema, {
+    ...baseDiagnosis,
+    followup_comment: "I found a concrete repository detail.",
+  });
+  const blank = v.parse(schema, {
+    ...baseDiagnosis,
+    followup_kind: "technical_diagnosis",
+    followup_rationale: " ",
+    followup_comment: "I found a concrete repository detail.",
+  });
+  const complete = v.parse(schema, {
+    ...baseDiagnosis,
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds repository evidence.",
+    followup_comment: "I found a concrete repository detail.",
+  });
+
+  assert.equal(incomplete.followup_comment, undefined);
+  assert.equal("followup_kind" in incomplete, false);
+  assert.equal("followup_rationale" in incomplete, false);
+  assert.equal("followup_comment" in incomplete, false);
+  assert.equal(blank.followup_kind, undefined);
+  assert.equal("followup_kind" in blank, false);
+  assert.equal("followup_rationale" in blank, false);
+  assert.equal("followup_comment" in blank, false);
+  assert.equal(complete.followup_kind, "technical_diagnosis");
+}
+
+test("normalizes incomplete follow-up metadata in evals", () => {
+  assertCompleteFollowupSchema(issueTriageEvalDiagnosisSchema);
+});
 
 function mockModuleOnce(
   specifier: string,
@@ -541,7 +587,6 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
           severity: "low",
           category: "maintenance",
           disposition: "impractical_scope",
-          rewrite_mode: "none",
           validity: "unclear",
           summary:
             "The request is a content-free language rewrite preference with no actionable maintenance proposal.",
@@ -551,9 +596,9 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
             "No concrete problem, user impact, migration plan, or owner is provided.",
           ],
           labels_to_apply: fixture.expectedTriage.labels_include,
-          should_comment: false,
-          should_update_issue: fixture.expectedTriage.should_update_issue,
-          triage_comment:
+          followup_kind: "missing_info_request",
+          followup_rationale: "Explains why the issue cannot proceed.",
+          followup_comment:
             "Pierre here.\n\nMerci for the report. I do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
           should_close: fixture.expectedTriage.should_close,
           close_reason: fixture.expectedTriage.close_reason,
@@ -734,7 +779,10 @@ async function runMemberCommentSuppressionFixture(
       },
       rm: async () => {},
     },
-    skill: async (_name: string, options: { args?: { stage?: string } }) => {
+    skill: async (
+      _name: string,
+      options: { args?: { stage?: string }; result: v.GenericSchema },
+    ) => {
       if (options.args?.stage === "search-duplicates") {
         return {
           data: {
@@ -746,26 +794,24 @@ async function runMemberCommentSuppressionFixture(
       }
 
       const modelDiagnosis = fixture.modelDiagnosis ?? {};
+      const responseData = {
+        severity: "low",
+        category: "feature_request",
+        disposition: "actionable",
+        validity: "likely",
+        summary: "The issue is already clear and actionable.",
+        evidence: ["The reporter supplied the relevant context."],
+        labels_to_apply: [],
+        followup_kind: "scope_clarification",
+        followup_rationale:
+          "The model attempted to add a public note, but it adds no new action.",
+        followup_comment: fixture.modelComment,
+        should_close: false,
+        needs_human_review: false,
+        ...modelDiagnosis,
+      };
       return {
-        data: {
-          severity: "low",
-          category: "feature_request",
-          disposition: "actionable",
-          rewrite_mode: "none",
-          validity: "likely",
-          summary: "The issue is already clear and actionable.",
-          evidence: ["The reporter supplied the relevant context."],
-          labels_to_apply: [],
-          should_comment: true,
-          comment_kind: "scope_note",
-          comment_rationale:
-            "The model attempted to add a public note, but it adds no new action.",
-          should_update_issue: false,
-          triage_comment: fixture.modelComment,
-          should_close: false,
-          needs_human_review: false,
-          ...modelDiagnosis,
-        },
+        data: v.parse(options.result, responseData),
       };
     },
   } as any;
@@ -795,11 +841,24 @@ async function runMemberCommentSuppressionFixture(
     },
   } as any);
 
-  assert.equal(result.outcome, "triaged");
+  const expectedNeedsHumanReview = fixture.expectedNeedsHumanReview ?? false;
+  assert.equal(
+    result.outcome,
+    expectedNeedsHumanReview ? "needs_human_review" : "triaged",
+  );
   assert.equal(result.comment_posted, fixture.expectedCommentPosted);
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
+  assert.equal(result.needs_human_review, expectedNeedsHumanReview);
+  assert.ok(
+    shellCalls.every(
+      ({ command }) =>
+        !command.startsWith("gh issue edit") ||
+        (!command.includes(" --title ") && !command.includes(" --body-file ")),
+    ),
+    "append-only triage must never edit reporter-authored title or body",
+  );
   assert.ok(
     fixture.expectedCommentPosted
       ? shellCalls.some(({ command }) => command.startsWith("gh issue comment"))
@@ -827,6 +886,16 @@ test("suppresses low-value actionable comments on member feature requests", asyn
 
 test("suppresses praise and restatement comments on member tracking issues", async (t) => {
   await runMemberCommentSuppressionFixture(t, await readMemberTrackingFixture());
+});
+
+test("ignores incomplete production follow-up metadata", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.issue.author = "external-reporter";
+  fixture.issue.authorAssociation = "NONE";
+  fixture.modelDiagnosis = { followup_kind: undefined };
+  fixture.expectedCommentPosted = false;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
 });
 
 test("keeps specific missing-info comments for outside contributors", async (t) => {
@@ -865,8 +934,8 @@ test("keeps concrete validation comments for member issues", async (t) => {
   ].join("\n");
   fixture.expectedCommentPosted = true;
   fixture.modelDiagnosis = {
-    comment_kind: "concrete_validation",
-    comment_rationale: "Adds a concrete repository finding not already captured.",
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds a concrete repository finding not already captured.",
     evidence: [
       "`packages/mcp-core/src/api-client/client.ts` has no issue user reports wrapper today.",
     ],
@@ -884,7 +953,7 @@ test("suppresses rhetorical questions on member actionable issues", async (t) =>
   ].join("\n");
   fixture.expectedCommentPosted = false;
   fixture.modelDiagnosis = {
-    comment_kind: "scope_note",
+    followup_kind: "scope_clarification",
   };
 
   await runMemberCommentSuppressionFixture(t, fixture);

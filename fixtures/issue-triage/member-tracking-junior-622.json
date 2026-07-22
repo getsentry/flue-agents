@@ -14,6 +14,6 @@
     "body": "## Summary\n\nCodex transcript review and commit-history analysis surfaced several recurring, mechanically detectable failure patterns that should be codified through existing repo checks.\n\n## Tasks\n\n- [ ] Add an eval command/documentation check.\n- [ ] Add an eval harness/schema drift check.\n- [ ] Add a changed-spec metadata check.\n- [ ] Add ast-grep rules for forbidden runtime singleton/test mutation patterns.\n- [ ] Add a production composition-root import boundary check.\n\n## Recommended First Slice\n\n1. Eval command/documentation check.\n2. Eval harness/schema drift check.\n3. Changed-spec metadata check.\n4. Runtime singleton/test mutation ast-grep rules.\n5. Production composition-root import boundary check."
   },
   "expectedTriage": {
-    "should_comment": false
+    "has_followup_comment": false
   }
 }

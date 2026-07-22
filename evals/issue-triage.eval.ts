@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { aroundAll, beforeEach, expect } from "vitest";
+import { aroundAll, beforeEach } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
 import * as v from "valibot";
 
@@ -20,6 +20,7 @@ import {
   parseIssueTriageEvalFixture,
   type IssueTriageEvalFixture,
 } from "../src/lib/issue-triage-eval.ts";
+import { DEFAULT_ISSUE_TRIAGE_EVAL_MODEL } from "../src/lib/issue-triage-model.ts";
 import {
   createFlueWorkflowHarness,
   startFlueEvalServer,
@@ -27,11 +28,11 @@ import {
 
 const rootPath = fileURLToPath(new URL("..", import.meta.url));
 const fixtureDir = join(rootPath, "fixtures/issue-triage");
-const CASE_TIMEOUT_MS = 60_000;
+const CASE_TIMEOUT_MS = 125_000;
 const SERVER_HOOK_TIMEOUT_MS = 90_000;
 const CLEANUP_TIMEOUT_MS = 10_000;
 const model =
-  process.env.FLUE_TRIAGE_EVAL_MODEL ?? "openrouter/anthropic/claude-haiku-4.5";
+  process.env.FLUE_TRIAGE_EVAL_MODEL ?? DEFAULT_ISSUE_TRIAGE_EVAL_MODEL;
 
 const evalOutputSchema = v.strictObject({
   scenario: v.string(),
@@ -73,7 +74,7 @@ function createEvalRoot() {
       `  thinkingLevel: "low",`,
       `  cwd: "/workspace",`,
       `  skills: [issueTriage],`,
-      `  instructions: \`Triage Sentry GitHub issues carefully. \${PIERRE_PERSONALITY} Use the issue-triage skill for duplicate search, diagnosis, validation, concise issue updates, and safe closure decisions.\`,`,
+      `  instructions: \`Triage Sentry GitHub issues carefully. \${PIERRE_PERSONALITY} Use the issue-triage skill for duplicate search, diagnosis, validation, concise additive follow-up comments, and safe closure decisions. Never rewrite reporter-authored issue content.\`,`,
       `}));`,
       ``,
     ].join("\n"),
@@ -196,12 +197,16 @@ const issueTriageHarness = createFlueWorkflowHarness<
   timeoutMs: CASE_TIMEOUT_MS,
 });
 
-describeEval("issue triage integration", { harness: issueTriageHarness }, (it) => {
-  it.for(fixtures)("$name", async ({ fixture }, { run }) => {
-    const result = await run(fixture);
-
-    expect(result.output.failures).toEqual([]);
-    expect(result.output.passed).toBe(true);
-    await expect(result).toSatisfyJudge(deterministicOutcomeJudge);
-  });
-});
+describeEval(
+  "issue triage integration",
+  {
+    harness: issueTriageHarness,
+    judges: [deterministicOutcomeJudge],
+    judgeThreshold: 1,
+  },
+  (it) => {
+    it.for(fixtures)("$name", async ({ fixture }, { run }) => {
+      await run(fixture);
+    });
+  },
+);
