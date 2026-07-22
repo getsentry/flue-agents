@@ -358,7 +358,7 @@ export async function postComment(
   context: IssueContext,
   body?: string,
 ) {
-  const comment = normalizePierreComment(body, context);
+  const comment = body?.trim();
   if (!comment) {
     return false;
   }
@@ -497,7 +497,7 @@ export async function closeSpamIssue(
     session,
     commandEnv,
     context,
-    buildSpamCloseComment(context),
+    normalizePierreComment(buildSpamCloseComment(context), context),
   );
   await runGhCommand(
     session,

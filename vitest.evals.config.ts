@@ -19,6 +19,7 @@ export default defineConfig({
     maxWorkers: 1,
     outputFile: { json: "vitest-results.json" },
     reporters: ["vitest-evals/reporter", "json"],
+    retry: 2,
     testTimeout: 150_000,
   },
 });

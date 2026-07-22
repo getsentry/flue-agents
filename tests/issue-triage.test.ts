@@ -18,6 +18,7 @@ import {
   closeSpamIssue,
   PIERRE_INVALID_CLOSE_COMMENTS,
   PIERRE_SPAM_CLOSE_COMMENTS,
+  normalizePierreComment,
   postComment,
   resolveGithubCommandEnv,
   type IssueContext,
@@ -325,7 +326,7 @@ test("defines a cheeky but reporter-safe Pierre personality", () => {
   assert.match(PIERRE_PERSONALITY, /not from sprinkling `Merci`/);
 });
 
-test("introduces Pierre only to first-time contributors", async () => {
+test("normalizes Pierre comments once before posting", async () => {
   const postedComments: string[] = [];
   const session = {
     shell: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
@@ -352,7 +353,10 @@ test("introduces Pierre only to first-time contributors", async () => {
     session,
     commandEnv,
     context,
-    "Hi, I'm Pierre!\n\nI found one useful detail.",
+    normalizePierreComment(
+      "Hi, I'm Pierre!\n\nI found one useful detail.",
+      context,
+    ),
   );
   context.reporter = {
     association: "FIRST_TIME_CONTRIBUTOR",
@@ -362,21 +366,27 @@ test("introduces Pierre only to first-time contributors", async () => {
     session,
     commandEnv,
     context,
-    "Pierre here.\n\nI need one concrete reproduction.",
+    normalizePierreComment(
+      "Pierre here.\n\nI need one concrete reproduction.",
+      context,
+    ),
   );
   context.reporter = { association: "FIRST_TIMER", trusted: false };
   await postComment(
     session,
     commandEnv,
     context,
-    "I confirmed the affected path.",
+    normalizePierreComment("I confirmed the affected path.", context),
   );
   context.reporter = undefined;
   await postComment(
     session,
     commandEnv,
     context,
-    "Pierre here.\n\nI found one useful detail.",
+    normalizePierreComment(
+      "Pierre here.\n\nI found one useful detail.",
+      context,
+    ),
   );
 
   assert.deepEqual(postedComments, [
