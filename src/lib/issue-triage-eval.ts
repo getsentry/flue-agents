@@ -327,10 +327,9 @@ export async function runIssueTriageEval(
   payload: unknown,
   issueTriageAgent: unknown,
 ) {
-  // Start the server-side deadline before agent/session setup. The surrounding
-  // harness and Vitest deadlines include additional headroom for cancellation
-  // and reporting after the model reaches this limit.
-  const signal = AbortSignal.timeout(120_000);
+  // Keep the server-side deadline just inside the eval harness deadline so
+  // slow model calls can finish while cancellation still reaches the client.
+  const signal = AbortSignal.timeout(175_000);
   const fixture = parseIssueTriageEvalFixture(payload);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(
