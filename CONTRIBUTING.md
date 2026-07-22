@@ -4,7 +4,7 @@
 
 - Node.js 22.19 or newer
 - pnpm 11.1.1
-- Cloudflare account with Workers, Durable Objects with SQLite storage, Workers AI, and Containers / Cloudflare Sandbox enabled
+- Cloudflare account with Workers, Durable Objects with SQLite storage, and Containers / Cloudflare Sandbox enabled
 - GitHub App installed on the repositories issue triage should manage
 
 ## Setup
@@ -72,20 +72,20 @@ Reference:
 
 ## Models
 
-The default triage model is `cloudflare/@cf/moonshotai/kimi-k2.6`, using the Cloudflare AI binding configured in `wrangler.jsonc`.
+The default triage model is `openrouter/anthropic/claude-sonnet-4.6` in both
+production and evals. Production requires `OPENROUTER_API_KEY` as a Wrangler
+secret.
 
 Override it with `FLUE_TRIAGE_MODEL` in `.env.local` or as a Wrangler secret.
 
-Issue-triage evals run locally with Flue's Node target, so they use OpenRouter
-instead of the Cloudflare Workers AI binding. `pnpm evals` defaults to
-`openrouter/moonshotai/kimi-k2.6`, matching the underlying production model and
-requiring `OPENROUTER_API_KEY`.
+Issue-triage evals run locally with Flue's Node target. `pnpm evals` defaults to
+the same OpenRouter provider and Sonnet 4.6 model as production.
 
 Configure evals in `.env.local`; the runner loads `.env` first, then
 `.env.local`, with shell variables winning over both:
 
 ```env
-FLUE_TRIAGE_EVAL_MODEL="openrouter/moonshotai/kimi-k2.6"
+FLUE_TRIAGE_EVAL_MODEL="openrouter/anthropic/claude-sonnet-4.6"
 OPENROUTER_API_KEY=""
 ```
 
@@ -95,7 +95,7 @@ rejects other providers.
 The eval suite starts one local Flue Node server, then invokes a fresh workflow
 instance per fixture through `@flue/sdk`. Every case uses the configured LLM,
 runs through `vitest-evals`, and may combine deterministic assertions with LLM
-judges. Cases have a hard 90-second timeout.
+judges. Model calls have a hard 120-second timeout.
 
 Evals never call GitHub. The server is started without GitHub credentials, and
 all issue context is fixture-backed. Add a JSON file under
@@ -205,7 +205,7 @@ import { createAgent, type AgentRouteHandler } from "@flue/runtime";
 export const route: AgentRouteHandler = async (_c, next) => next();
 
 export default createAgent(() => ({
-  model: "cloudflare/@cf/moonshotai/kimi-k2.6",
+  model: "openrouter/anthropic/claude-sonnet-4.6",
   instructions: "Describe what this agent should do.",
 }));
 ```

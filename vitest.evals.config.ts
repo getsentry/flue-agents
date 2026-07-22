@@ -18,6 +18,6 @@ export default defineConfig({
     include: ["evals/**/*.eval.ts"],
     maxWorkers: 1,
     reporters: ["vitest-evals/reporter"],
-    testTimeout: 90_000,
+    testTimeout: 130_000,
   },
 });

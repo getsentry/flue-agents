@@ -52,6 +52,7 @@ pnpm exec wrangler secret put GITHUB_APP_INSTALLATION_ID
 pnpm exec wrangler secret put GITHUB_APP_PRIVATE_KEY
 pnpm exec wrangler secret put GITHUB_WEBHOOK_SECRET
 pnpm exec wrangler secret put FLUE_HTTP_TOKEN
+pnpm exec wrangler secret put OPENROUTER_API_KEY
 pnpm exec wrangler secret put FLUE_TRIAGE_MODEL # optional
 pnpm exec wrangler secret put SENTRY_DSN
 pnpm exec wrangler secret put SENTRY_ENVIRONMENT # optional

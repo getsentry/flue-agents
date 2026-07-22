@@ -28,7 +28,7 @@ import {
 
 const rootPath = fileURLToPath(new URL("..", import.meta.url));
 const fixtureDir = join(rootPath, "fixtures/issue-triage");
-const CASE_TIMEOUT_MS = 90_000;
+const CASE_TIMEOUT_MS = 125_000;
 const SERVER_HOOK_TIMEOUT_MS = 90_000;
 const CLEANUP_TIMEOUT_MS = 10_000;
 const model =

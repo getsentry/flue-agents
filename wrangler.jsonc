@@ -9,9 +9,6 @@
       "destinations": ["sentry-pierre-logs"]
     }
   },
-  "ai": {
-    "binding": "AI"
-  },
   "durable_objects": {
     "bindings": [
       {
