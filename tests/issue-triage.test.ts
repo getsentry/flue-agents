@@ -1130,6 +1130,29 @@ test("reports resolved trusted-reporter actions during dry runs", async (t) => {
   assert.equal(result.needs_human_review, false);
 });
 
+test("returns resolved issue update text during dry runs", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.modelDiagnosis = {
+    should_comment: true,
+    should_update_issue: true,
+    proposed_title: "Expose the missing integration surface",
+    proposed_body: "## Summary\n\nAdd the missing API wrapper.",
+    triage_comment: "I clarified the issue so the implementation is ready to pick up.",
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.equal(result.title_proposed, "Expose the missing integration surface");
+  assert.equal(result.body_proposed, "## Summary\n\nAdd the missing API wrapper.");
+  assert.match(result.comment_proposed, /clarified the issue/);
+  assert.equal(result.close_reason, undefined);
+  assert.equal(result.should_comment, true);
+  assert.equal(result.should_update_issue, true);
+  assert.equal(result.should_close, false);
+});
+
 test("reports no proposed mutations for human-review dry runs", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.dryRun = true;
@@ -1175,6 +1198,10 @@ test("runs full diagnosis for duplicate dry runs without mutating issues", async
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
   assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.title_proposed, undefined);
+  assert.equal(result.body_proposed, undefined);
+  assert.match(result.comment_proposed, /same issue as #456/);
+  assert.equal(result.close_reason, "duplicate");
   assert.equal(result.should_comment, true);
   assert.equal(result.should_update_issue, false);
   assert.equal(result.should_close, true);
