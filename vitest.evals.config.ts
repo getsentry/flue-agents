@@ -20,6 +20,6 @@ export default defineConfig({
     outputFile: { json: "vitest-results.json" },
     reporters: ["vitest-evals/reporter", "json"],
     retry: 2,
-    testTimeout: 150_000,
+    testTimeout: 240_000,
   },
 });

@@ -292,7 +292,7 @@ test("defines multiple hardcoded Pierre close comment variants", () => {
     assert.match(comment, /^Hi, I'm Pierre!/);
     assert.match(comment, /promotion|outreach/);
     assert.match(comment, /I'm closing (it|this) as invalid|still invalid\. I'm closing it/);
-    assert.match(comment, /tourist|café terrace|postcard|beret|avant-garde/);
+    assert.doesNotMatch(comment, /tourist|café terrace|postcard|beret|avant-garde/);
     assert.doesNotMatch(comment, /\bMerci\b/);
     assert.doesNotMatch(comment, /\bPas\b/);
     assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);

@@ -415,27 +415,27 @@ export const PIERRE_SPAM_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This is outside promotion, not repository work. It has wandered into the tracker like a tourist without a map, so I'm closing it as invalid.",
+    "This is external promotion, not repository work. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I checked. This is outreach, not a bug, docs problem, or feature request. The issue tracker is not a café terrace for passing advertisements, so I'm closing this as invalid.",
+    "This is promotional outreach, not a bug, documentation problem, or feature request. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This is a promotional postcard addressed to the maintainers. Charming, perhaps, but there is no repository work here. I'm closing it as invalid.",
+    "This is promotion for an external listing and does not identify repository work. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. This is external promotion wearing an issue-shaped beret: no bug, no repository problem, no change to make. I'm closing it as invalid.",
+    "This is external promotion with no repository problem or requested change. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This arrives dressed as an issue but contains only external promotion. Very avant-garde; I'm closing it as invalid.",
+    "This is outreach for an external service, not an actionable repository issue. I'm closing it as invalid.",
   ].join("\n"),
 ] as const;
 
