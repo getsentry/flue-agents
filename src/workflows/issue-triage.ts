@@ -909,13 +909,20 @@ export async function run({
         ? resolveDuplicateOutcome(updateContext, duplicateSearch.duplicate.number)
         : undefined;
     const resolvedOutcome: IssueTriageOutcome =
-      diagnosisValidationError || issueChanged
+      issueChanged
         ? {
             action: "none" as const,
             labels: [],
             needs_human_review: true,
           }
-        : duplicateOutcome ?? proposedOutcome;
+        : duplicateOutcome ??
+          (diagnosisValidationError
+            ? {
+                action: "none" as const,
+                labels: [],
+                needs_human_review: true,
+              }
+            : proposedOutcome);
 
     return {
       outcome: "dry_run",
@@ -949,10 +956,10 @@ export async function run({
       summary: diagnosis.summary,
       update_summary: issueChanged
         ? "Skipped all GitHub mutations because this was a dry run; the issue changed during analysis, so the proposed diagnosis requires human review."
-        : diagnosisValidationError
-          ? "Skipped all GitHub mutations because this was a dry run; the proposed diagnosis also requires human review after failing semantic validation."
-          : duplicateOutcome
+        : duplicateOutcome
             ? `Skipped closing this issue as a duplicate of #${duplicateSearch.duplicate?.number} because this was a dry run.`
+          : diagnosisValidationError
+            ? "Skipped all GitHub mutations because this was a dry run; the proposed diagnosis also requires human review after failing semantic validation."
             : "Skipped all GitHub mutations because this was a dry run.",
       evidence: diagnosis.evidence,
       validation_error: diagnosisValidationError,

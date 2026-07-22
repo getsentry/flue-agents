@@ -116,11 +116,14 @@ If `repositoryContext.checkoutAvailable` is true, inspect code under `repository
 7. Decide whether an additive follow-up comment would help:
    - Never propose or perform edits to the reporter's title or description. They remain the source of truth.
    - Omit `followup_comment`, `followup_kind`, and `followup_rationale` when the issue is already clear and actionable and you found no concrete new evidence.
+   - A generic or terse title does not make an issue unclear when the body contains an actionable report.
+   - Missing repository access or an unattempted reproduction is an internal validation limit, not a reason to comment when the report is already actionable.
    - Do not comment for formatting or light cleanup alone.
    - Use `technical_diagnosis` for a concise current read, concrete repository findings, and validation limits or missing information.
    - Use `scope_clarification` for a concise interpretation plus the specific missing context or decision.
    - Use `missing_info_request` for a focused set of questions needed to move the issue forward.
    - A follow-up must add actionable information; never restate or fully rewrite the issue in comment form.
+   - Reporter association does not change this threshold. Do not greet or acknowledge a first-time reporter unless a substantive follow-up is warranted.
    - For trusted reporters, only use `missing_info_request` with a specific blocking ask or `technical_diagnosis` with repository evidence not already present in the issue.
    - When a comment is useful, provide exactly one `followup_comment`, its `followup_kind`, and a concise `followup_rationale`.
 8. Keep substantive broad or impractical feature requests open for human review unless the duplicate stage confirmed a duplicate.

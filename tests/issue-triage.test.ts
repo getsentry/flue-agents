@@ -1031,7 +1031,9 @@ async function runMemberCommentSuppressionFixture(
   }
   if (fixture.expectedTriage.duplicate) {
     assert.deepEqual(result.duplicate, fixture.expectedTriage.duplicate);
-    assert.ok(result.gap_analysis);
+    if (!expectedValidationError) {
+      assert.ok(result.gap_analysis);
+    }
   }
   if (fixture.expectedTriage.issue_changed !== undefined) {
     assert.equal(result.issue_changed, fixture.expectedTriage.issue_changed);
@@ -1146,6 +1148,24 @@ test("returns resolved follow-up text during dry runs", async (t) => {
     followup_rationale: "Adds a concrete repository finding.",
     followup_comment:
       "I found the missing integration surface. Please add the API wrapper before wiring the tool.",
+    gap_analysis: {
+      current_capability: "The requested behavior is not exposed today.",
+      desired_outcome: "Agents can use the requested behavior.",
+      gap: "The repository lacks the requested integration surface.",
+      affected_users: ["MCP users"],
+      workaround: null,
+      acceptance_criteria: ["Expose the requested behavior."],
+      constraints: [],
+      smallest_viable_slice: "Add the missing API wrapper.",
+      decision_type: "implementation",
+      evidence: [
+        {
+          source: "source",
+          claim: "The API client has no issue user reports wrapper.",
+          reference: "packages/mcp-core/src/api-client/client.ts",
+        },
+      ],
+    },
   };
   fixture.expectedTriage.outcome = "dry_run";
   fixture.expectedTriage.comment_posted = false;
@@ -1209,6 +1229,37 @@ test("runs full diagnosis for duplicate dry runs without mutating issues", async
         step.name === "close-duplicate" && step.result === "skipped: dry run",
     ),
   );
+  assert.match(result.update_summary, /duplicate of #456/);
+});
+
+test("preserves duplicate proposals when dry-run diagnosis validation fails", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/sentry-mcp/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  fixture.dryRun = true;
+  fixture.duplicateSearch = {
+    status: "duplicate",
+    duplicate,
+    candidates: [duplicate],
+    rationale: "The reports describe the same request.",
+  };
+  fixture.modelDiagnosis = { gap_analysis: undefined };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.duplicate = duplicate;
+  fixture.expectedTriage.validation_error = /gap_analysis/;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.match(result.comment_proposed, /same issue as #456/);
+  assert.equal(result.close_reason, "duplicate");
+  assert.equal(result.should_close, true);
+  assert.equal(result.needs_human_review, false);
   assert.match(result.update_summary, /duplicate of #456/);
 });
 
@@ -1296,6 +1347,10 @@ test("keeps specific missing-info comments for outside contributors", async (t) 
   fixture.modelComment = [
     "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
   ].join("\n");
+  fixture.modelDiagnosis = {
+    disposition: "needs_more_info",
+    followup_kind: "missing_info_request",
+  };
   fixture.expectedCommentPosted = true;
 
   await runMemberCommentSuppressionFixture(t, fixture);
@@ -1310,6 +1365,10 @@ test("introduces Pierre in comments for first-time contributors", async (t) => {
     "",
     "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
   ].join("\n");
+  fixture.modelDiagnosis = {
+    disposition: "needs_more_info",
+    followup_kind: "missing_info_request",
+  };
   fixture.expectedCommentPosted = true;
 
   await runMemberCommentSuppressionFixture(t, fixture);
@@ -1330,6 +1389,24 @@ test("keeps concrete validation comments for member issues", async (t) => {
     evidence: [
       "`packages/mcp-core/src/api-client/client.ts` has no issue user reports wrapper today.",
     ],
+    gap_analysis: {
+      current_capability: "The requested behavior is not exposed today.",
+      desired_outcome: "Agents can use the requested behavior.",
+      gap: "The repository lacks the requested integration surface.",
+      affected_users: ["MCP users"],
+      workaround: null,
+      acceptance_criteria: ["Expose the requested behavior."],
+      constraints: [],
+      smallest_viable_slice: "Add the missing API wrapper.",
+      decision_type: "implementation",
+      evidence: [
+        {
+          source: "source",
+          claim: "The API client has no issue user reports wrapper.",
+          reference: "packages/mcp-core/src/api-client/client.ts",
+        },
+      ],
+    },
   };
 
   await runMemberCommentSuppressionFixture(t, fixture);
@@ -1346,6 +1423,24 @@ test("suppresses rhetorical questions on member actionable issues", async (t) =>
   fixture.modelDiagnosis = {
     followup_kind: "scope_clarification",
   };
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("suppresses non-additive comments on actionable external issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.issue.author = "new-reporter";
+  fixture.issue.authorAssociation = "FIRST_TIMER";
+  fixture.modelComment = [
+    "Hi, I'm Pierre!",
+    "",
+    "This is actionable as written. I could not inspect the repository, so a maintainer can take it from here.",
+  ].join("\n");
+  fixture.modelDiagnosis = {
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Restates the report and mentions a validation limit.",
+  };
+  fixture.expectedCommentPosted = false;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });

@@ -64,10 +64,29 @@ function shouldSuppressComment(
   context: IssueContext,
   diagnosis: IssueTriageDiagnosis,
 ) {
+  const analysisEvidence = [
+    ...(diagnosis.bug_analysis?.evidence ?? []),
+    ...(diagnosis.gap_analysis?.evidence ?? []),
+  ];
+  const hasIndependentEvidence = analysisEvidence.some(({ source }) =>
+    ["source", "command", "history"].includes(source),
+  );
+
+  // An actionable report already gives maintainers enough to proceed. Only a
+  // technical finding from outside the report can justify adding public text.
+  if (
+    diagnosis.disposition === "actionable" &&
+    (diagnosis.followup_kind !== "technical_diagnosis" ||
+      !hasIndependentEvidence)
+  ) {
+    return true;
+  }
+
   if (!isTrustedReporter(context)) return false;
   return !(
     diagnosis.followup_kind === "missing_info_request" ||
-    diagnosis.followup_kind === "technical_diagnosis"
+    (diagnosis.followup_kind === "technical_diagnosis" &&
+      hasIndependentEvidence)
   );
 }
 

@@ -268,13 +268,22 @@ const issueTriageHarness = createFlueWorkflowHarness<
 describeEval("issue triage integration", { harness: issueTriageHarness }, (it) => {
   it.for(fixtures)("$name", async ({ fixture }, { run }) => {
     const result = await run(fixture);
-    expect(
-      evaluateIssueTriageOutcome(
-        result.output.diagnosis,
-        result.output.outcome,
-        fixture,
-      ),
-    ).toEqual([]);
+    const failures = evaluateIssueTriageOutcome(
+      result.output.diagnosis,
+      result.output.outcome,
+      fixture,
+    );
+    if (failures.length > 0) {
+      throw new Error(
+        [
+          "GitHub-visible outcome failed deterministic checks:",
+          ...failures.map((failure) => `- ${failure}`),
+          "",
+          "Actual GitHub-visible outcome:",
+          JSON.stringify(result.output.outcome, null, 2),
+        ].join("\n"),
+      );
+    }
     if (fixture.rubric) {
       await expect(result).toSatisfyJudge(issueTriageRubricJudge, {
         judgeHarness: issueTriageJudgeHarness,
