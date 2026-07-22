@@ -22,7 +22,7 @@ function hasNoContraryCloseReason(diagnosis: CloseCandidate) {
 
 export function shouldCloseAsSpam(diagnosis: CloseCandidate) {
   return (
-    diagnosis.should_close !== false &&
+    diagnosis.should_close === true &&
     hasNoContraryCloseReason(diagnosis) &&
     diagnosis.disposition === "spam" &&
     diagnosis.severity === "low" &&
@@ -37,7 +37,7 @@ export function shouldCloseAsInvalidLowSignal(
   diagnosis: CloseCandidate,
 ) {
   return (
-    diagnosis.should_close !== false &&
+    diagnosis.should_close === true &&
     hasNoContraryCloseReason(diagnosis) &&
     ["low_actionability", "impractical_scope", "unclear"].includes(
       diagnosis.disposition,

@@ -35,8 +35,6 @@ export type IssueContext = {
 
 type SpamCloseDiagnosis = unknown;
 
-type IssueCloseDiagnosis = unknown;
-
 export function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -256,22 +254,35 @@ function existingLabels(context: IssueContext) {
   return labels;
 }
 
-function filterExistingLabels(context: IssueContext, labels: string[]) {
+function issueLabels(context: IssueContext) {
+  if (!isRecord(context.issue) || !Array.isArray(context.issue.labels)) {
+    return new Set<string>();
+  }
+
+  return new Set(
+    context.issue.labels.flatMap((label) => {
+      if (typeof label === "string") return [label.toLowerCase()];
+      if (isRecord(label) && typeof label.name === "string") {
+        return [label.name.toLowerCase()];
+      }
+      return [];
+    }),
+  );
+}
+
+export function resolveLabelsToApply(context: IssueContext, labels: string[]) {
   const available = existingLabels(context);
+  const applied = issueLabels(context);
   const result = new Map<string, string>();
 
   for (const label of labels) {
     const existing = available.get(label.toLowerCase());
-    if (existing) {
+    if (existing && !applied.has(existing.toLowerCase())) {
       result.set(existing.toLowerCase(), existing);
     }
   }
 
   return Array.from(result.values());
-}
-
-export function findDuplicateLabel(context: IssueContext) {
-  return existingLabels(context).get("duplicate") ?? null;
 }
 
 export function findInvalidLabel(context: IssueContext) {
@@ -324,7 +335,7 @@ export async function applyLabels(
   const repo = repoArg(context.repository);
   const applied: string[] = [];
 
-  for (const label of filterExistingLabels(context, labels)) {
+  for (const label of resolveLabelsToApply(context, labels)) {
     await runGhCommand(
       session,
       commandEnv,
@@ -343,7 +354,7 @@ export async function postComment(
   context: IssueContext,
   body?: string,
 ) {
-  const comment = normalizePierreComment(body, context);
+  const comment = body?.trim();
   if (!comment) {
     return false;
   }
@@ -363,7 +374,7 @@ export async function postComment(
   return true;
 }
 
-function normalizePierreComment(
+export function normalizePierreComment(
   body: string | undefined,
   context: IssueContext,
 ) {
@@ -400,27 +411,27 @@ export const PIERRE_SPAM_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This is outside promotion, not repository work. It has wandered into the tracker like a tourist without a map, so I'm closing it as invalid.",
+    "This is external promotion, not repository work. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I checked. This is outreach, not a bug, docs problem, or feature request. The issue tracker is not a café terrace for passing advertisements, so I'm closing this as invalid.",
+    "This is promotional outreach, not a bug, documentation problem, or feature request. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This is a promotional postcard addressed to the maintainers. Charming, perhaps, but there is no repository work here. I'm closing it as invalid.",
+    "This is promotion for an external listing and does not identify repository work. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. This is external promotion wearing an issue-shaped beret: no bug, no repository problem, no change to make. I'm closing it as invalid.",
+    "This is external promotion with no repository problem or requested change. I'm closing it as invalid.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This arrives dressed as an issue but contains only external promotion. Very avant-garde; still invalid. I'm closing it.",
+    "This is outreach for an external service, not an actionable repository issue. I'm closing it as invalid.",
   ].join("\n"),
 ] as const;
 
@@ -428,44 +439,47 @@ export const PIERRE_INVALID_CLOSE_COMMENTS = [
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I need one concrete repository problem. At present this is a mood board with an issue number, so I'm closing it as invalid.",
+    "I'm closing this as invalid because it does not identify a concrete repository problem or proposed change. A focused issue should describe the current limitation and the outcome you need.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I checked, but there is no clear bug, repository change, or maintainer action here. Asking maintainers to invent the missing problem is too experimental, so I'm closing this as invalid.",
+    "There is no concrete bug or repository change to act on here, so I'm closing this as invalid. Please open a focused issue with the current behavior and the result you want.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This is beautifully abstract, but the tracker requires one concrete repository problem or change. I found neither, so I'm closing this as invalid.",
+    "This does not describe a concrete repository problem or change, so I'm closing it as invalid. A new issue should include the current limitation, affected users, and desired outcome.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "This needs one concrete repository action. The tracker is not an improv theatre for maintainers, so I'm closing this as invalid.",
+    "I cannot identify a repository action from this report, so I'm closing it as invalid. Please describe the problem the current implementation causes and the specific change you need.",
   ].join("\n"),
   [
     PIERRE_COMMENT_OPENER,
     "",
-    "I had a look. The missing detail is unfortunately the entire plot: a concrete problem maintainers can act on. Without it, I'm closing this as invalid.",
+    "This is missing the concrete problem maintainers would need to act on, so I'm closing it as invalid. Please open a focused issue with an example and the expected result.",
   ].join("\n"),
 ] as const;
 
-function selectStaticPierreComment(variants: readonly string[]) {
+function selectStaticPierreComment(
+  variants: readonly string[],
+  context: IssueContext,
+) {
   if (variants.length === 0) {
     throw new Error("At least one Pierre comment variant is required.");
   }
 
-  return variants[Math.floor(Math.random() * variants.length)] ?? variants[0];
+  return variants[context.issueNumber % variants.length] ?? variants[0];
 }
 
-function buildSpamCloseComment() {
-  return selectStaticPierreComment(PIERRE_SPAM_CLOSE_COMMENTS);
+export function buildSpamCloseComment(context: IssueContext) {
+  return selectStaticPierreComment(PIERRE_SPAM_CLOSE_COMMENTS, context);
 }
 
-function buildInvalidCloseComment() {
-  return selectStaticPierreComment(PIERRE_INVALID_CLOSE_COMMENTS);
+export function buildInvalidCloseComment(context: IssueContext) {
+  return selectStaticPierreComment(PIERRE_INVALID_CLOSE_COMMENTS, context);
 }
 
 /** Closes spam with a static Pierre comment, never generated diagnosis prose. */
@@ -479,36 +493,13 @@ export async function closeSpamIssue(
     session,
     commandEnv,
     context,
-    buildSpamCloseComment(),
+    normalizePierreComment(buildSpamCloseComment(context), context),
   );
   await runGhCommand(
     session,
     commandEnv,
     `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote("not planned")}`,
     "Closing spam issue",
-  );
-
-  return commentPosted;
-}
-
-/** Closes invalid low-signal issues with a static Pierre comment. */
-export async function closeInvalidIssue(
-  session: FlueSession,
-  commandEnv: GithubCommandEnv,
-  context: IssueContext,
-  _diagnosis: IssueCloseDiagnosis,
-) {
-  const commentPosted = await postComment(
-    session,
-    commandEnv,
-    context,
-    buildInvalidCloseComment(),
-  );
-  await runGhCommand(
-    session,
-    commandEnv,
-    `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote("not planned")}`,
-    "Closing invalid issue",
   );
 
   return commentPosted;

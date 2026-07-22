@@ -37,7 +37,12 @@ provider and model used by the production Cloudflare Worker. Set
 first, then `.env.local`, with shell variables winning over both. Evals only
 accept `openrouter/...` models. Model calls have a hard 120-second timeout. The
 eval server receives no GitHub credentials and never calls GitHub; issue and
-repository context comes entirely from the fixture.
+repository context comes entirely from the fixture. Each fixture runs with the
+production issue-triage agent configuration and applies deterministic assertions
+to the same normalized GitHub-visible outcome used by production. Fixtures may
+also define a qualitative rubric scored by a separate `vitest-evals` judge on
+usefulness, precision, structure, and restraint. Both the internal diagnosis and
+the final outcome remain inspectable in `vitest-results.json`.
 
 ## Quick Start
 
@@ -105,8 +110,10 @@ set +a
 curl "http://localhost:3583/workflows/issue-triage?wait=result" \
   -H "Authorization: Bearer $FLUE_HTTP_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"repository":"getsentry/sentry-mcp","issueNumber":1059}'
+  -d '{"repository":"getsentry/sentry-mcp","issueNumber":1059,"dryRun":true}'
 ```
+
+Use `dryRun: true` to run duplicate search, repository inspection, and structured diagnosis without labels, comments, edits, or closure. The result includes proposed actions plus `bug_analysis` or `gap_analysis`, which makes behavior review safe before enabling mutations. Omit `dryRun` for the normal mutating workflow.
 
 The production GitHub App webhook uses `/channels/github/webhook` through Flue's GitHub channel package and starts workflow runs after signature verification. It currently admits `issues.opened` events only. The workflow endpoint is protected and should be used only for authorized manual/operator runs.
 

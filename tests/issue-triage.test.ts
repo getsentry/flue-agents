@@ -3,12 +3,25 @@ import { readFile } from "node:fs/promises";
 import test, { mock, type TestContext } from "node:test";
 import * as v from "valibot";
 
-import { issueTriageEvalDiagnosisSchema } from "../src/lib/issue-triage-eval.ts";
+import {
+  issueTriageEvalDiagnosisSchema,
+  runIssueTriageEval,
+} from "../src/lib/issue-triage-eval.ts";
+import {
+  assertDiagnosisAnalysis,
+  issueTriageDiagnosisSchema,
+  type IssueTriageDiagnosis,
+} from "../src/lib/issue-triage-analysis.ts";
+import {
+  shouldCloseAsInvalidLowSignal,
+  shouldCloseAsSpam,
+} from "../src/lib/issue-triage-close-decision.ts";
 import {
   applyLabels,
   closeSpamIssue,
   PIERRE_INVALID_CLOSE_COMMENTS,
   PIERRE_SPAM_CLOSE_COMMENTS,
+  normalizePierreComment,
   postComment,
   resolveGithubCommandEnv,
   type IssueContext,
@@ -28,6 +41,7 @@ const baseDiagnosis = {
   summary: "Clear request.",
   evidence: [],
   labels_to_apply: [],
+  should_close: false,
   needs_human_review: false,
 } as const;
 
@@ -62,6 +76,42 @@ function assertCompleteFollowupSchema(schema: v.GenericSchema) {
 
 test("normalizes incomplete follow-up metadata in evals", () => {
   assertCompleteFollowupSchema(issueTriageEvalDiagnosisSchema);
+});
+
+test("evals block outcomes that production semantic validation rejects", async () => {
+  const fixtureUrl = new URL(
+    "../fixtures/issue-triage/first-time-reporter-actionable.json",
+    import.meta.url,
+  );
+  const fixture = JSON.parse(await readFile(fixtureUrl, "utf8"));
+  const invalidDiagnosis = {
+    severity: "medium",
+    category: "bug",
+    disposition: "actionable",
+    validity: "likely",
+    summary: "The report describes a likely regression.",
+    evidence: ["The reporter supplied a version boundary and workaround."],
+    labels_to_apply: ["bug"],
+    should_close: false,
+    needs_human_review: false,
+  };
+  const session = {
+    skill: async () => ({
+      data: v.parse(issueTriageEvalDiagnosisSchema, invalidDiagnosis),
+    }),
+  };
+
+  const result = await runIssueTriageEval(
+    async () => ({ session: async () => session }),
+    fixture,
+    {},
+  );
+
+  assert.deepEqual(result.outcome, {
+    action: "none",
+    labels: [],
+    needs_human_review: true,
+  });
 });
 
 function mockModuleOnce(
@@ -109,6 +159,7 @@ async function readMemberActionableFixture() {
     modelComment:
       "Hi, I'm Pierre!\n\nMerci for the report. I checked the repository and confirmed that neither the `GET /api/0/issues/{issue_id}/user-reports/` endpoint nor a `user_report` entry schema exists today. The gap is real.\n\nThe issue description already covers the two sensible implementation paths. A maintainer can take it from here.",
     expectedCommentPosted: false,
+    expectedTriage: {},
   };
 }
 
@@ -122,6 +173,7 @@ async function readMemberTrackingFixture() {
     modelComment:
       "Hi, I'm Pierre!\n\nThis is a thorough analysis — thanks for surfacing the patterns. The existing ast-grep/oxlint setup you describe is in place, so the wiring should be straightforward.\n\nA quick note: this is a large tracking issue with ~12 tasks. The recommended first slice at the bottom is probably the right place to start. If you want pieces picked up by other contributors, splitting a few of those into smaller issues would make ownership clearer.\n\nMerci for the detailed write-up.",
     expectedCommentPosted: false,
+    expectedTriage: {},
   };
 }
 
@@ -157,6 +209,101 @@ async function generateTestGitHubPrivateKey() {
   return pemFromPkcs8(await crypto.subtle.exportKey("pkcs8", key.privateKey));
 }
 
+test("requires explicit closure approval", () => {
+  const diagnosis = {
+    disposition: "spam",
+    severity: "low",
+    category: "maintenance",
+    labels_to_apply: ["invalid"],
+    needs_human_review: false,
+  };
+  const context: IssueContext = {
+    issueNumber: 1,
+    issue: {},
+    labels: [{ name: "invalid" }],
+    fetchedAt: "2026-07-15T00:00:00Z",
+  };
+
+  assert.equal(shouldCloseAsSpam(diagnosis), false);
+  assert.equal(shouldCloseAsInvalidLowSignal(context, diagnosis), false);
+  assert.equal(shouldCloseAsSpam({ ...diagnosis, should_close: true }), true);
+});
+
+test("requires close_reason in structured output when closing", () => {
+  const result = v.safeParse(issueTriageDiagnosisSchema, {
+    severity: "low",
+    category: "maintenance",
+    disposition: "spam",
+    validity: "likely",
+    summary: "Automated external promotion.",
+    evidence: ["The issue says it was opened automatically."],
+    labels_to_apply: ["invalid"],
+    should_close: true,
+    close_comment: "Closing this automated promotion as not planned.",
+    needs_human_review: false,
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("accepts affected users as a list in gap analysis", () => {
+  const result = v.safeParse(issueTriageDiagnosisSchema, {
+    severity: "medium",
+    category: "feature_request",
+    disposition: "actionable",
+    validity: "likely",
+    summary: "The requested capability is missing.",
+    evidence: ["The issue describes the missing capability."],
+    gap_analysis: {
+      current_capability: "The capability is not available.",
+      desired_outcome: "Expose the requested capability.",
+      gap: "No supported interface exposes it.",
+      affected_users: ["SDK maintainers", "Integration users"],
+      workaround: null,
+      acceptance_criteria: ["The capability is available."],
+      constraints: [],
+      smallest_viable_slice: "Add one supported interface.",
+      decision_type: "implementation",
+      evidence: [
+        {
+          source: "reporter",
+          claim: "The issue identifies the affected users.",
+        },
+      ],
+    },
+    labels_to_apply: ["enhancement"],
+    should_close: false,
+    needs_human_review: false,
+  });
+
+  assert.equal(result.success, true);
+});
+
+test("requires structured root cause and gap analysis", () => {
+  const base = {
+    severity: "medium",
+    category: "bug",
+    disposition: "actionable",
+    validity: "confirmed",
+    summary: "A bug exists.",
+    evidence: ["The source path proves the behavior."],
+    labels_to_apply: [],
+    should_close: false,
+    needs_human_review: false,
+  } as IssueTriageDiagnosis;
+
+  assert.throws(() => assertDiagnosisAnalysis(base), /bug_analysis/);
+  assert.throws(
+    () =>
+      assertDiagnosisAnalysis({
+        ...base,
+        category: "feature_request",
+        validity: "likely",
+      }),
+    /gap_analysis/,
+  );
+});
+
 test("keeps issue triage exposed only through the workflow route", async () => {
   const agentUrl = new URL("../src/agents/issue-triage.ts", import.meta.url);
   const workflowUrl = new URL("../src/workflows/issue-triage.ts", import.meta.url);
@@ -185,7 +332,7 @@ test("defines multiple hardcoded Pierre close comment variants", () => {
     assert.match(comment, /^Hi, I'm Pierre!/);
     assert.match(comment, /promotion|outreach/);
     assert.match(comment, /I'm closing (it|this) as invalid|still invalid\. I'm closing it/);
-    assert.match(comment, /tourist|café terrace|postcard|beret|avant-garde/);
+    assert.doesNotMatch(comment, /tourist|café terrace|postcard|beret|avant-garde/);
     assert.doesNotMatch(comment, /\bMerci\b/);
     assert.doesNotMatch(comment, /\bPas\b/);
     assert.doesNotMatch(comment, /maintainer can decide whether to .*close/i);
@@ -195,10 +342,11 @@ test("defines multiple hardcoded Pierre close comment variants", () => {
     assert.match(comment, /^Hi, I'm Pierre!/);
     assert.match(
       comment,
-      /concrete repository problem|repository change|actionable problem|concrete repository action|concrete problem/,
+      /concrete repository problem|repository change|repository action|concrete problem/,
     );
-    assert.match(comment, /I'm closing (it|this) as invalid/);
-    assert.match(
+    assert.match(comment, /closing (it|this) as invalid/);
+    assert.match(comment, /current|focused|affected users|specific|example/);
+    assert.doesNotMatch(
       comment,
       /mood board|experimental|beautifully abstract|improv theatre|entire plot/,
     );
@@ -218,7 +366,7 @@ test("defines a cheeky but reporter-safe Pierre personality", () => {
   assert.match(PIERRE_PERSONALITY, /not from sprinkling `Merci`/);
 });
 
-test("introduces Pierre only to first-time contributors", async () => {
+test("normalizes Pierre comments once before posting", async () => {
   const postedComments: string[] = [];
   const session = {
     shell: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
@@ -245,7 +393,10 @@ test("introduces Pierre only to first-time contributors", async () => {
     session,
     commandEnv,
     context,
-    "Hi, I'm Pierre!\n\nI found one useful detail.",
+    normalizePierreComment(
+      "Hi, I'm Pierre!\n\nI found one useful detail.",
+      context,
+    ),
   );
   context.reporter = {
     association: "FIRST_TIME_CONTRIBUTOR",
@@ -255,21 +406,27 @@ test("introduces Pierre only to first-time contributors", async () => {
     session,
     commandEnv,
     context,
-    "Pierre here.\n\nI need one concrete reproduction.",
+    normalizePierreComment(
+      "Pierre here.\n\nI need one concrete reproduction.",
+      context,
+    ),
   );
   context.reporter = { association: "FIRST_TIMER", trusted: false };
   await postComment(
     session,
     commandEnv,
     context,
-    "I confirmed the affected path.",
+    normalizePierreComment("I confirmed the affected path.", context),
   );
   context.reporter = undefined;
   await postComment(
     session,
     commandEnv,
     context,
-    "Pierre here.\n\nI found one useful detail.",
+    normalizePierreComment(
+      "Pierre here.\n\nI found one useful detail.",
+      context,
+    ),
   );
 
   assert.deepEqual(postedComments, [
@@ -323,7 +480,7 @@ test("closes external registry spam using the deterministic GitHub update path",
     session,
     commandEnv,
     context,
-    fixture.expectedTriage.labels_include,
+    fixture.expectedOutcome.labels_include,
   );
   const commentPosted = await closeSpamIssue(
     session,
@@ -595,16 +752,28 @@ test("closes invalid low-signal rewrite requests as not planned", async (t) => {
             "Body only says Python is better than JavaScript.",
             "No concrete problem, user impact, migration plan, or owner is provided.",
           ],
-          labels_to_apply: fixture.expectedTriage.labels_include,
+          gap_analysis: {
+            current_capability: "The repository is implemented in TypeScript.",
+            desired_outcome: "The reporter prefers Python.",
+            gap: "No concrete product or maintenance gap is identified.",
+            affected_users: [],
+            workaround: null,
+            acceptance_criteria: [],
+            constraints: ["No actionable requirement was provided."],
+            smallest_viable_slice: null,
+            decision_type: "product",
+            evidence: [{ source: "reporter", claim: "The report only states a language preference." }],
+          },
+          labels_to_apply: fixture.expectedOutcome.labels_include,
           followup_kind: "missing_info_request",
           followup_rationale: "Explains why the issue cannot proceed.",
           followup_comment:
             "Pierre here.\n\nMerci for the report. I do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
-          should_close: fixture.expectedTriage.should_close,
-          close_reason: fixture.expectedTriage.close_reason,
+          should_close: fixture.expectedOutcome.action === "close",
+          close_reason: fixture.expectedOutcome.close_reason,
           close_comment:
             "Pierre here.\n\nMerci for the report. I do not see a concrete repo problem or change to work on here, so I'm closing this as invalid.",
-          needs_human_review: fixture.expectedTriage.needs_human_review,
+          needs_human_review: fixture.expectedOutcome.needs_human_review,
         },
       };
     },
@@ -725,6 +894,7 @@ async function runMemberCommentSuppressionFixture(
     name,
     description: "Existing label",
   }));
+  let issueViewCount = 0;
   const issue = {
     title: fixture.issue.title,
     body: fixture.issue.body,
@@ -741,7 +911,29 @@ async function runMemberCommentSuppressionFixture(
       shellCalls.push({ command, env: options?.env });
 
       if (command.startsWith(`gh issue view ${fixture.source.issueNumber}`)) {
-        return { exitCode: 0, stdout: JSON.stringify(issue), stderr: "" };
+        issueViewCount += 1;
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify(
+            fixture.changeIssueDuringAnalysis && issueViewCount >= 3
+              ? { ...issue, body: `${issue.body}\n\nExternally edited.` }
+              : fixture.addCommentDuringAnalysis && issueViewCount >= 3
+                ? {
+                    ...issue,
+                    comments: [
+                      {
+                        author: { login: "another-user" },
+                        body: "Additional context.",
+                      },
+                    ],
+                    updatedAt: "2026-07-15T22:30:00Z",
+                  }
+                : fixture.reorderLabelsDuringAnalysis && issueViewCount >= 3
+                  ? { ...issue, labels: [...issue.labels].reverse() }
+                  : issue,
+          ),
+          stderr: "",
+        };
       }
 
       if (command.startsWith("gh api ")) {
@@ -785,7 +977,7 @@ async function runMemberCommentSuppressionFixture(
     ) => {
       if (options.args?.stage === "search-duplicates") {
         return {
-          data: {
+          data: fixture.duplicateSearch ?? {
             status: "unique",
             candidates: [],
             rationale: "No duplicate candidates matched.",
@@ -801,6 +993,23 @@ async function runMemberCommentSuppressionFixture(
         validity: "likely",
         summary: "The issue is already clear and actionable.",
         evidence: ["The reporter supplied the relevant context."],
+        gap_analysis: {
+          current_capability: "The requested behavior is not exposed today.",
+          desired_outcome: "Agents can use the requested behavior.",
+          gap: "The repository lacks the requested integration surface.",
+          affected_users: ["MCP users"],
+          workaround: null,
+          acceptance_criteria: ["Expose the requested behavior."],
+          constraints: [],
+          smallest_viable_slice: "Add the missing API wrapper.",
+          decision_type: "implementation",
+          evidence: [
+            {
+              source: "reporter",
+              claim: "The issue describes the missing integration surface.",
+            },
+          ],
+        },
         labels_to_apply: [],
         followup_kind: "scope_clarification",
         followup_rationale:
@@ -829,6 +1038,7 @@ async function runMemberCommentSuppressionFixture(
     payload: {
       issueNumber: fixture.source.issueNumber,
       repository: fixture.source.repository,
+      dryRun: fixture.dryRun,
     },
     env: {
       GITHUB_APP_CLIENT_ID: "Iv1.test",
@@ -841,12 +1051,39 @@ async function runMemberCommentSuppressionFixture(
     },
   } as any);
 
-  const expectedNeedsHumanReview = fixture.expectedNeedsHumanReview ?? false;
-  assert.equal(
-    result.outcome,
-    expectedNeedsHumanReview ? "needs_human_review" : "triaged",
-  );
-  assert.equal(result.comment_posted, fixture.expectedCommentPosted);
+  const expectedNeedsHumanReview =
+    fixture.expectedTriage.needs_human_review ??
+    fixture.expectedNeedsHumanReview ??
+    (fixture.expectedTriage.issue_changed === true ||
+      fixture.expectedTriage.outcome === "needs_human_review");
+  const expectedOutcome =
+    fixture.expectedTriage.outcome ??
+    (expectedNeedsHumanReview ? "needs_human_review" : "triaged");
+  const expectedCommentPosted =
+    fixture.expectedTriage.comment_posted ?? fixture.expectedCommentPosted;
+  const expectedValidationError =
+    fixture.expectedTriage.validation_error ?? fixture.expectedValidationError;
+  assert.equal(result.outcome, expectedOutcome);
+  assert.equal(result.comment_posted, expectedCommentPosted);
+  if (expectedValidationError) {
+    assert.match(result.validation_error, expectedValidationError);
+  }
+  if (fixture.expectedTriage.duplicate) {
+    assert.deepEqual(result.duplicate, fixture.expectedTriage.duplicate);
+    if (!expectedValidationError) {
+      assert.ok(result.gap_analysis);
+    }
+  }
+  if (fixture.expectedTriage.issue_changed !== undefined) {
+    assert.equal(result.issue_changed, fixture.expectedTriage.issue_changed);
+    if (fixture.expectedTriage.issue_changed) {
+      assert.equal(result.needs_human_review, true);
+    }
+    assert.deepEqual(result.labels_proposed, []);
+  }
+  if (fixture.expectedTriage.outcome === "needs_human_review") {
+    assert.deepEqual(result.labels_applied, []);
+  }
   assert.equal(result.issue_closed, false);
   assert.equal(result.title_updated, false);
   assert.equal(result.body_updated, false);
@@ -860,14 +1097,14 @@ async function runMemberCommentSuppressionFixture(
     "append-only triage must never edit reporter-authored title or body",
   );
   assert.ok(
-    fixture.expectedCommentPosted
+    expectedCommentPosted
       ? shellCalls.some(({ command }) => command.startsWith("gh issue comment"))
       : shellCalls.every(
           ({ command }) => !command.startsWith("gh issue comment"),
         ),
   );
-  assert.equal(files.size > 0, fixture.expectedCommentPosted);
-  if (fixture.expectedCommentPosted) {
+  assert.equal(files.size > 0, expectedCommentPosted);
+  if (expectedCommentPosted) {
     const [commentPath, commentBody] = Array.from(files.entries())[0];
     assert.equal(commentBody, fixture.modelComment);
     assert.ok(
@@ -878,7 +1115,251 @@ async function runMemberCommentSuppressionFixture(
       ),
     );
   }
+
+  return result;
 }
+
+test("returns complete dry-run output when the issue changes during analysis", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.changeIssueDuringAnalysis = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("marks analysis stale when comments are added during a dry run", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.addCommentDuringAnalysis = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = true;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("does not mark analysis stale when label order changes", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.reorderLabelsDuringAnalysis = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = false;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("preserves semantic validation errors when the issue changes during analysis", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.changeIssueDuringAnalysis = true;
+  fixture.modelDiagnosis = {
+    gap_analysis: undefined,
+  };
+  fixture.expectedTriage.outcome = "needs_human_review";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = true;
+  fixture.expectedTriage.validation_error = /gap_analysis/;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("reports resolved trusted-reporter actions during dry runs", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.comment_proposed, undefined);
+  assert.equal(result.should_close, false);
+  assert.equal(result.needs_human_review, false);
+});
+
+test("returns resolved follow-up text during dry runs", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.modelDiagnosis = {
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds a concrete repository finding.",
+    followup_comment:
+      "I found the missing integration surface. Please add the API wrapper before wiring the tool.",
+    gap_analysis: {
+      current_capability: "The requested behavior is not exposed today.",
+      desired_outcome: "Agents can use the requested behavior.",
+      gap: "The repository lacks the requested integration surface.",
+      affected_users: ["MCP users"],
+      workaround: null,
+      acceptance_criteria: ["Expose the requested behavior."],
+      constraints: [],
+      smallest_viable_slice: "Add the missing API wrapper.",
+      decision_type: "implementation",
+      evidence: [
+        {
+          source: "source",
+          claim: "The API client has no issue user reports wrapper.",
+          reference: "packages/mcp-core/src/api-client/client.ts",
+        },
+      ],
+    },
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.match(result.comment_proposed, /missing integration surface/);
+  assert.equal(result.close_reason, undefined);
+  assert.equal(result.should_close, false);
+});
+
+test("reports no proposed mutations for human-review dry runs", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.dryRun = true;
+  fixture.modelDiagnosis = {
+    labels_to_apply: ["enhancement"],
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds a potentially sensitive finding.",
+    followup_comment: "Potentially sensitive details that should not be posted.",
+    needs_human_review: true,
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.needs_human_review = true;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.comment_proposed, undefined);
+  assert.equal(result.should_close, false);
+  assert.equal(result.needs_human_review, true);
+});
+
+test("runs full diagnosis for duplicate dry runs without mutating issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/sentry-mcp/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  fixture.dryRun = true;
+  fixture.duplicateSearch = {
+    status: "duplicate",
+    duplicate,
+    candidates: [duplicate],
+    rationale: "The reports describe the same request.",
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.duplicate = duplicate;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.match(result.comment_proposed, /same issue as #456/);
+  assert.equal(result.close_reason, "duplicate");
+  assert.equal(result.should_close, true);
+  assert.ok(
+    result.steps.some(
+      (step: { name: string; result: string }) =>
+        step.name === "close-duplicate" && step.result === "skipped: dry run",
+    ),
+  );
+  assert.match(result.update_summary, /duplicate of #456/);
+});
+
+test("preserves duplicate proposals when dry-run diagnosis validation fails", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/sentry-mcp/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  fixture.dryRun = true;
+  fixture.duplicateSearch = {
+    status: "duplicate",
+    duplicate,
+    candidates: [duplicate],
+    rationale: "The reports describe the same request.",
+  };
+  fixture.modelDiagnosis = { gap_analysis: undefined };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.duplicate = duplicate;
+  fixture.expectedTriage.validation_error = /gap_analysis/;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.match(result.comment_proposed, /same issue as #456/);
+  assert.equal(result.close_reason, "duplicate");
+  assert.equal(result.should_close, true);
+  assert.equal(result.needs_human_review, false);
+  assert.match(result.update_summary, /duplicate of #456/);
+});
+
+test("reports no proposed duplicate closure when the issue changes during a dry run", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/sentry-mcp/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  fixture.dryRun = true;
+  fixture.changeIssueDuringAnalysis = true;
+  fixture.duplicateSearch = {
+    status: "duplicate",
+    duplicate,
+    candidates: [duplicate],
+    rationale: "The reports describe the same request.",
+  };
+  fixture.expectedTriage.outcome = "dry_run";
+  fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.issue_changed = true;
+  fixture.expectedTriage.duplicate = duplicate;
+
+  const result = await runMemberCommentSuppressionFixture(t, fixture);
+  assert.deepEqual(result.labels_proposed, []);
+  assert.equal(result.comment_proposed, undefined);
+  assert.equal(result.should_close, false);
+  assert.equal(result.needs_human_review, true);
+  assert.match(result.update_summary, /issue changed during analysis/);
+});
+
+test("preserves diagnoses that fail semantic validation without mutating issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.modelDiagnosis = {
+    gap_analysis: undefined,
+  };
+  fixture.expectedNeedsHumanReview = true;
+  fixture.expectedCommentPosted = false;
+  fixture.expectedValidationError = /gap_analysis/;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("skips public mutations whenever diagnosis requires human review", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.modelDiagnosis = {
+    severity: "high",
+    labels_to_apply: ["enhancement"],
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds a potentially sensitive finding.",
+    followup_comment: "Potentially sensitive details that should not be posted.",
+    needs_human_review: true,
+  };
+  fixture.expectedTriage.outcome = "needs_human_review";
+  fixture.expectedTriage.comment_posted = false;
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
 
 test("suppresses low-value actionable comments on member feature requests", async (t) => {
   await runMemberCommentSuppressionFixture(t, await readMemberActionableFixture());
@@ -905,6 +1386,10 @@ test("keeps specific missing-info comments for outside contributors", async (t) 
   fixture.modelComment = [
     "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
   ].join("\n");
+  fixture.modelDiagnosis = {
+    disposition: "needs_more_info",
+    followup_kind: "missing_info_request",
+  };
   fixture.expectedCommentPosted = true;
 
   await runMemberCommentSuppressionFixture(t, fixture);
@@ -919,6 +1404,10 @@ test("introduces Pierre in comments for first-time contributors", async (t) => {
     "",
     "Merci for the report. I need one concrete reproduction before maintainers can act here: which command failed, and what output did you expect?",
   ].join("\n");
+  fixture.modelDiagnosis = {
+    disposition: "needs_more_info",
+    followup_kind: "missing_info_request",
+  };
   fixture.expectedCommentPosted = true;
 
   await runMemberCommentSuppressionFixture(t, fixture);
@@ -939,6 +1428,24 @@ test("keeps concrete validation comments for member issues", async (t) => {
     evidence: [
       "`packages/mcp-core/src/api-client/client.ts` has no issue user reports wrapper today.",
     ],
+    gap_analysis: {
+      current_capability: "The requested behavior is not exposed today.",
+      desired_outcome: "Agents can use the requested behavior.",
+      gap: "The repository lacks the requested integration surface.",
+      affected_users: ["MCP users"],
+      workaround: null,
+      acceptance_criteria: ["Expose the requested behavior."],
+      constraints: [],
+      smallest_viable_slice: "Add the missing API wrapper.",
+      decision_type: "implementation",
+      evidence: [
+        {
+          source: "source",
+          claim: "The API client has no issue user reports wrapper.",
+          reference: "packages/mcp-core/src/api-client/client.ts",
+        },
+      ],
+    },
   };
 
   await runMemberCommentSuppressionFixture(t, fixture);
@@ -955,6 +1462,24 @@ test("suppresses rhetorical questions on member actionable issues", async (t) =>
   fixture.modelDiagnosis = {
     followup_kind: "scope_clarification",
   };
+
+  await runMemberCommentSuppressionFixture(t, fixture);
+});
+
+test("suppresses non-additive comments on actionable external issues", async (t) => {
+  const fixture = await readMemberActionableFixture();
+  fixture.issue.author = "new-reporter";
+  fixture.issue.authorAssociation = "FIRST_TIMER";
+  fixture.modelComment = [
+    "Hi, I'm Pierre!",
+    "",
+    "This is actionable as written. I could not inspect the repository, so a maintainer can take it from here.",
+  ].join("\n");
+  fixture.modelDiagnosis = {
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Restates the report and mentions a validation limit.",
+  };
+  fixture.expectedCommentPosted = false;
 
   await runMemberCommentSuppressionFixture(t, fixture);
 });
@@ -1110,6 +1635,128 @@ test("rejects GitHub App ID as an issuer fallback", async () => {
     /GITHUB_APP_CLIENT_ID and GITHUB_APP_PRIVATE_KEY are required for GitHub App authentication/,
   );
   assert.equal(initCalled, false);
+});
+
+test("returns a complete result after closing a duplicate", async (t) => {
+  mockModuleOnce("@flue/runtime/cloudflare", {
+    namedExports: {
+      extend: (descriptor: unknown) => descriptor,
+    },
+  });
+  mockModuleOnce("@sentry/cloudflare", {
+    namedExports: {
+      instrumentDurableObjectWithSentry: (_options: unknown, Final: unknown) =>
+        Final,
+    },
+  });
+  mockModuleOnce(
+    new URL("../src/agents/issue-triage.ts", import.meta.url).href,
+    {
+      defaultExport: {},
+    },
+  );
+
+  const { run: runIssueTriageWorkflow } = await import(
+    "../src/workflows/issue-triage.ts"
+  );
+  const shellCalls: ShellCall[] = [];
+  const duplicate = {
+    number: 456,
+    title: "Existing matching issue",
+    url: "https://github.com/getsentry/example/issues/456",
+    state: "open",
+    confidence: "high",
+    reason: "Same underlying report.",
+  };
+  const session = {
+    shell: async (command: string, options?: { env?: Record<string, string> }) => {
+      shellCalls.push({ command, env: options?.env });
+
+      if (command.startsWith("gh issue view 123")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            title: "Current issue",
+            body: "Same failure",
+            author: { login: "reporter" },
+            labels: [],
+            comments: [],
+            url: "https://github.com/getsentry/example/issues/123",
+            state: "open",
+            createdAt: "2026-06-15T00:00:00Z",
+            updatedAt: "2026-06-15T00:01:00Z",
+          }),
+          stderr: "",
+        };
+      }
+
+      if (command.startsWith("gh label list")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { name: "duplicate", description: "Duplicate issue" },
+          ]),
+          stderr: "",
+        };
+      }
+
+      if (command.startsWith("gh search issues")) {
+        return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
+      }
+
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+    fs: {
+      mkdir: async () => {},
+      writeFile: async () => {},
+      rm: async () => {},
+    },
+    skill: async () => ({
+      data: {
+        status: "duplicate",
+        duplicate,
+        candidates: [duplicate],
+        rationale: "The reports describe the same failure.",
+      },
+    }),
+  } as any;
+  const privateKey = await generateTestGitHubPrivateKey();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    mock.fn(async () => Response.json({ token: "workflow-installation-token" })),
+  );
+
+  const result = await runIssueTriageWorkflow({
+    init: async () => ({
+      session: async () => session,
+    }),
+    payload: {
+      issueNumber: 123,
+      repository: "getsentry/example",
+    },
+    env: {
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_INSTALLATION_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: privateKey,
+    },
+    log: {
+      warn: () => {},
+    },
+  } as any);
+
+  assert.equal(result.outcome, "duplicate_closed");
+  assert.equal(result.issue_closed, true);
+  assert.equal(result.needs_human_review, false);
+  assert.equal(result.comment_posted, true);
+  assert.deepEqual(result.labels_applied, ["duplicate"]);
+  assert.ok(
+    shellCalls.some(
+      ({ command }) =>
+        command ===
+        "gh issue close 123 --repo 'getsentry/example' --reason duplicate --duplicate-of 456",
+    ),
+  );
 });
 
 test("skips duplicate closure when the issue is already closed at mutation time", async (t) => {

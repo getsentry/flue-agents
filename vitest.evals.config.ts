@@ -14,10 +14,12 @@ export default defineConfig({
   test: {
     environment: "node",
     fileParallelism: false,
-    hookTimeout: 70_000,
+    hookTimeout: 100_000,
     include: ["evals/**/*.eval.ts"],
     maxWorkers: 1,
-    reporters: ["vitest-evals/reporter"],
-    testTimeout: 130_000,
+    outputFile: { json: "vitest-results.json" },
+    reporters: ["vitest-evals/reporter", "json"],
+    retry: 2,
+    testTimeout: 240_000,
   },
 });

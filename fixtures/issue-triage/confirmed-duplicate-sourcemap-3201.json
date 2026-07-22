@@ -1,0 +1,46 @@
+{
+  "name": "closes confirmed duplicate against canonical issue",
+  "description": "A new issue and a supplied candidate describe the same sentry-cli regression. The outcome should point to the canonical issue and close the duplicate cleanly.",
+  "source": {
+    "repository": "getsentry/sentry-cli",
+    "issueNumber": 3201,
+    "capturedAt": "2026-07-21T20:00:00Z"
+  },
+  "repositoryLabels": ["bug", "duplicate"],
+  "issue": {
+    "title": "sourcemaps upload returns 401 after upgrading to 2.48.0",
+    "author": "duplicate-report",
+    "authorAssociation": "CONTRIBUTOR",
+    "labels": ["bug"],
+    "body": "After upgrading sentry-cli from 2.47.1 to 2.48.0, `sentry-cli sourcemaps upload ./dist` returns `401 Unauthorized` with an auth token that still works after downgrading."
+  },
+  "duplicateCandidates": [
+    {
+      "number": 3190,
+      "title": "401 from sourcemaps upload in sentry-cli 2.48.0",
+      "url": "https://github.com/getsentry/sentry-cli/issues/3190",
+      "state": "open",
+      "confidence": "low",
+      "reason": "Workflow search matched the exact version, command, and error."
+    }
+  ],
+  "rubric": {
+    "pass": [
+      "Recognizes that both issues describe the same 2.48.0 sourcemaps upload 401 regression.",
+      "The closure comment names #3190 as the canonical place to follow and briefly explains the closure."
+    ],
+    "fail": [
+      "Treats broad command or authentication overlap alone as sufficient evidence.",
+      "Adds troubleshooting steps or a second diagnosis instead of directing the reporter to the canonical issue."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "close",
+    "labels_include": ["duplicate"],
+    "comment_includes": ["#3190", "closing", "updates"],
+    "max_comment_words": 45,
+    "close_reason": "duplicate",
+    "needs_human_review": false
+  }
+}

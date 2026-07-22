@@ -1,0 +1,42 @@
+{
+  "name": "preserves evidence-backed causal chain for confirmed bug",
+  "description": "Real GitHub issue fixture with a detailed, evidence-backed root cause. The diagnosis must preserve the causal chain instead of merely classifying the report as a bug.",
+  "source": {
+    "repository": "getsentry/junior",
+    "issueNumber": 804,
+    "capturedAt": "2026-07-09T15:20:27Z"
+  },
+  "issue": {
+    "title": "GitHub writes fail silently in resource-event-triggered turns",
+    "author": "dcramer",
+    "authorAssociation": "MEMBER",
+    "labels": ["bug"],
+    "body": "Resource-event-triggered agent turns run with a system actor credential context, but GitHub user-write grants require a currentUser or credentialSubject token slot derived from a real user identity. When a subscription event fires and Junior attempts a write, neither slot is populated, so the credential is rejected. Retrying the same action as a new user turn succeeds immediately.\n\n## Root cause (high confidence)\n\nreply-executor.ts assigns resource events `{ actor: { platform: \"system\", name: \"resource-event\" } }`. That context flows into the sandbox egress token through tools.ts. credential-hooks.ts only creates currentUser when the actor has a user shape, so the system actor produces no currentUser token slot. The GitHub credential issuer then rejects user-write because both currentUser and credentialSubject are absent.\n\n## Broken flows\n\n- Resource-event-triggered GitHub writes\n- Other system-actor turns attempting sandbox egress writes\n\n## Not broken\n\n- Continuation turns that restore the user actor\n- Read-only operations using installation-read grants\n\n## Fix direction\n\nEither deny writes from resource-event turns with an actionable explanation, or persist the subscription-initiating user as a credentialSubject and authorize event-triggered writes on that user's behalf."
+  },
+  "rubric": {
+    "pass": [
+      "Preserves the reported system actor to missing currentUser or credentialSubject to rejected GitHub write causal chain.",
+      "Distinguishes reporter-provided evidence from independently verified source or command evidence.",
+      "Provides a useful fix direction and validation plan without claiming a reproduction or checkout inspection.",
+      "Avoids a public restatement because the trusted reporter already supplied a useful root cause analysis."
+    ],
+    "fail": [
+      "Claims the bug was reproduced or source files were inspected.",
+      "Invents source locations or evidence not present in the issue."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "none",
+    "needs_human_review": false
+  },
+  "expectedAnalysis": {
+    "kind": "bug",
+    "root_cause_includes": ["system actor", "currentUser", "credentialSubject"],
+    "min_causal_chain_steps": 3,
+    "min_structured_evidence": 2
+  },
+  "repositoryLabels": [
+    "bug"
+  ]
+}

@@ -86,6 +86,7 @@ Configure evals in `.env.local`; the runner loads `.env` first, then
 
 ```env
 FLUE_TRIAGE_EVAL_MODEL="openrouter/anthropic/claude-sonnet-4.6"
+FLUE_TRIAGE_JUDGE_MODEL="openrouter/anthropic/claude-haiku-4.5"
 OPENROUTER_API_KEY=""
 ```
 
@@ -93,17 +94,22 @@ Use only `openrouter/...` values for `FLUE_TRIAGE_EVAL_MODEL`; the eval runner
 rejects other providers.
 
 The eval suite starts one local Flue Node server, then invokes a fresh workflow
-instance per fixture through `@flue/sdk`. Every case uses the configured LLM,
-runs through `vitest-evals`, and may combine deterministic assertions with LLM
-judges. Model calls have a hard 120-second timeout.
+instance per fixture through `@flue/sdk`. The fixture-backed workflow uses the
+production agent configuration, returns its internal `diagnosis`, and resolves
+the same GitHub-visible `outcome` as production. Every case uses the configured
+LLM and runs through `vitest-evals`. Model calls have a hard 120-second timeout;
+rubric-judged cases may use up to 150 seconds total while the second model scores
+the result.
 
 Evals never call GitHub. The server is started without GitHub credentials, and
 all issue context is fixture-backed. Add a JSON file under
 `fixtures/issue-triage/` using this minimal shape; the filename becomes the case
-name, unknown fields fail validation, and all expectation fields are optional:
+identifier, `name` is the human-readable case name, unknown fields fail
+validation, and all expectation fields are optional:
 
 ```json
 {
+  "name": "asks for the blocking error detail",
   "description": "What behavior this case protects.",
   "source": {
     "repository": "getsentry/example",
@@ -118,16 +124,41 @@ name, unknown fields fail validation, and all expectation fields are optional:
     "labels": [],
     "body": "Issue body"
   },
-  "expectedTriage": {
+  "rubric": {
+    "pass": ["Explains the reported failure without inventing evidence."],
+    "fail": ["Claims the issue was reproduced when it was not."],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "comment",
     "labels_include": ["bug"],
-    "should_close": false
+    "comment_includes": ["exact error"],
+    "comment_excludes": ["maintainer can take it"],
+    "max_comment_words": 80,
+    "needs_human_review": false
   }
 }
 ```
 
 `repositoryLabels` are the labels available for the agent to apply. `labels`
 are labels already present on the issue. Keep both input fields independent from
-the expectations under `expectedTriage`.
+the assertions under `expectedOutcome`. `diagnosis` means the agent's internal
+evidence and reasoning. `outcome` means the exact normalized GitHub action,
+labels, comment, closure, and review state. Labels are orthogonal to the primary
+action. `expectedOutcome` contains the deterministic assertions; omitted fields
+are not scored.
+
+Use `action: "none"`, `"label"`, `"comment"`, or `"close"` for
+the primary GitHub-visible result. Add `duplicateCandidates` only for a
+duplicate-search case; each candidate contains its issue number, title, URL,
+state, confidence, and search reason.
+
+The deterministic `expectedOutcome` checks always run. Add the optional
+`rubric` when usefulness also needs qualitative judgment. The judge scores the
+final `outcome` on usefulness, precision, structure, and restraint, and uses the
+lowest dimension as the case score. `pass` and `fail` hold case-specific
+criteria; `threshold` defaults to `0.75`. The judge defaults to Claude Haiku 4.5
+and can be changed with `FLUE_TRIAGE_JUDGE_MODEL`.
 
 ## Sentry
 

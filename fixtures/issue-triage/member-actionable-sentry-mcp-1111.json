@@ -1,4 +1,5 @@
 {
+  "name": "keeps clear member feature request silent and open",
   "description": "Real GitHub issue fixture for a clear member-authored feature request where Pierre should not post a restatement comment.",
   "source": {
     "repository": "getsentry/sentry-mcp",
@@ -13,7 +14,20 @@
     "labels": ["enhancement", "good first issue", "4. Low"],
     "body": "## Summary\n\nThe Sentry REST API exposes `GET /api/0/issues/{issue_id}/user-reports/` which returns User Feedback (legacy user reports) attached to a specific error issue. This endpoint is not currently surfaced through any MCP tool, making it impossible for agents to retrieve this data.\n\n## Current behavior\n\nThe MCP API client has no method wrapping this endpoint. The event entry schema also does not model the `user_report` entry type that can appear on error events.\n\n## Gap\n\nWhen an error event has an associated User Feedback submission, agents cannot access that data via MCP.\n\n## Options\n\n* Add a `get_issue_user_reports` tool wrapping `GET /api/0/issues/{issue_id}/user-reports/`\n* Alternatively or additionally, model the `user_report` entry type in the event schema so it surfaces when fetching event details via `get_sentry_resource`"
   },
-  "expectedTriage": {
-    "has_followup_comment": false
+  "rubric": {
+    "pass": [
+      "Clearly identifies that MCP cannot retrieve the user reports described in the issue through the existing tool or event schema.",
+      "Provides concrete acceptance criteria for exposing the missing capability without inventing repository findings.",
+      "Treats the well-specified member issue as actionable and avoids an unnecessary public restatement."
+    ],
+    "fail": [
+      "Claims repository inspection, code execution, or reproduction that the fixture does not provide.",
+      "Invents affected source locations or unsupported technical facts."
+    ],
+    "threshold": 0.8
+  },
+  "expectedOutcome": {
+    "action": "none",
+    "needs_human_review": false
   }
 }

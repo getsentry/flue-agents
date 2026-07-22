@@ -15,9 +15,6 @@ import * as v from "valibot";
 import issueTriageAgent from "../agents/issue-triage.ts";
 import {
   applyLabels,
-  closeInvalidIssue,
-  closeSpamIssue,
-  findDuplicateLabel,
   type GithubCommandEnv,
   resolveGithubCommandEnv,
   type IssueContext,
@@ -28,10 +25,15 @@ import {
   shellQuote,
 } from "../lib/issue-triage-github.ts";
 import {
-  shouldCloseAsInvalidLowSignal,
-  shouldCloseAsSpam,
-} from "../lib/issue-triage-close-decision.ts";
-import { PIERRE_COMMENT_OPENER } from "../lib/pierre.ts";
+  assertDiagnosisAnalysis,
+  issueTriageDiagnosisSchema,
+  type IssueTriageDiagnosis,
+} from "../lib/issue-triage-analysis.ts";
+import {
+  resolveDuplicateOutcome,
+  resolveIssueTriageOutcome,
+  type IssueTriageOutcome,
+} from "../lib/issue-triage-outcome.ts";
 import { getSentryOptions, type SentryEnv } from "../lib/sentry.ts";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
@@ -60,32 +62,8 @@ const repositorySchema = v.pipe(
 const payloadSchema = v.object({
   issueNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
   repository: v.optional(repositorySchema),
+  dryRun: v.optional(v.boolean(), false),
 });
-
-const severitySchema = v.picklist(["low", "medium", "high", "critical"]);
-const categorySchema = v.picklist([
-  "bug",
-  "documentation",
-  "feature_request",
-  "support",
-  "security",
-  "maintenance",
-  "unknown",
-]);
-const dispositionSchema = v.picklist([
-  "actionable",
-  "needs_more_info",
-  "low_actionability",
-  "impractical_scope",
-  "spam",
-  "unclear",
-]);
-const closeReasonSchema = v.picklist(["not planned"]);
-const followupKindSchema = v.picklist([
-  "technical_diagnosis",
-  "scope_clarification",
-  "missing_info_request",
-]);
 
 const duplicateCandidateSchema = v.object({
   number: v.pipe(v.number(), v.integer(), v.minValue(1)),
@@ -106,40 +84,8 @@ type DuplicateSearch = v.InferOutput<typeof duplicateSearchSchema>;
 type DuplicateCandidate = v.InferOutput<typeof duplicateCandidateSchema>;
 type WorkflowLog = FlueContext<unknown, Env>["log"];
 
-const diagnosisSchema = v.pipe(
-  v.object({
-    severity: severitySchema,
-    category: categorySchema,
-    disposition: dispositionSchema,
-    validity: v.picklist(["confirmed", "likely", "not_reproducible", "unclear"]),
-    summary: v.string(),
-    evidence: v.array(v.string()),
-    labels_to_apply: v.array(v.string()),
-    followup_kind: v.optional(followupKindSchema),
-    followup_rationale: v.optional(v.pipe(v.string(), v.trim())),
-    followup_comment: v.optional(v.pipe(v.string(), v.trim())),
-    should_close: v.optional(v.boolean()),
-    close_reason: v.optional(closeReasonSchema),
-    close_comment: v.optional(v.string()),
-    needs_human_review: v.boolean(),
-  }),
-  v.transform((diagnosis) => {
-    if (
-      diagnosis.followup_kind !== undefined &&
-      diagnosis.followup_rationale &&
-      diagnosis.followup_comment
-    ) {
-      return diagnosis;
-    }
-
-    const normalized = { ...diagnosis };
-    delete normalized.followup_kind;
-    delete normalized.followup_rationale;
-    delete normalized.followup_comment;
-    return normalized;
-  }),
-);
-type Diagnosis = v.InferOutput<typeof diagnosisSchema>;
+const diagnosisSchema = issueTriageDiagnosisSchema;
+type Diagnosis = IssueTriageDiagnosis;
 
 const updateSchema = v.object({
   title_updated: v.boolean(),
@@ -147,8 +93,8 @@ const updateSchema = v.object({
   labels_applied: v.array(v.string()),
   comment_posted: v.boolean(),
   issue_closed: v.boolean(),
-  closure_kind: v.optional(v.picklist(["spam", "invalid"])),
-  close_reason: v.optional(closeReasonSchema),
+  closure_kind: v.optional(v.picklist(["spam", "invalid", "duplicate"])),
+  close_reason: v.optional(v.picklist(["not planned", "duplicate"])),
   needs_human_review: v.boolean(),
   summary: v.string(),
 });
@@ -327,6 +273,7 @@ function buildDiagnosisFailure(error: unknown): Diagnosis {
       "Automated triage could not complete, so the issue is left unchanged for maintainer review.",
     evidence: [summarizeAgentFailure(error)],
     labels_to_apply: [],
+    should_close: false,
     needs_human_review: true,
   };
 }
@@ -338,55 +285,26 @@ function getIssueState(context: IssueContext) {
   return context.issue.state.toLowerCase();
 }
 
-function getIssueAuthorAssociation(context: IssueContext) {
-  if (context.reporter?.association) {
-    return normalizeAuthorAssociation(context.reporter.association);
-  }
-
+function issueSnapshot(context: IssueContext) {
   if (!isRecord(context.issue)) {
-    return null;
+    return "";
   }
 
-  if (typeof context.issue.authorAssociation === "string") {
-    return normalizeAuthorAssociation(context.issue.authorAssociation);
-  }
+  const labels = Array.isArray(context.issue.labels)
+    ? context.issue.labels
+        .map((label) =>
+          isRecord(label) && typeof label.name === "string" ? label.name : label,
+        )
+        .sort()
+    : context.issue.labels;
 
-  if (typeof context.issue.author_association === "string") {
-    return normalizeAuthorAssociation(context.issue.author_association);
-  }
-
-  if (
-    isRecord(context.issue.author) &&
-    typeof context.issue.author.association === "string"
-  ) {
-    return normalizeAuthorAssociation(context.issue.author.association);
-  }
-
-  return null;
-}
-
-function isTrustedReporter(context: IssueContext) {
-  return context.reporter?.trusted === true
-    ? true
-    : isTrustedAssociation(getIssueAuthorAssociation(context) ?? undefined);
-}
-
-/**
- * Suppresses standalone trusted-reporter comments unless the model classifies
- * them as a blocking ask or concrete repository validation finding.
- */
-function shouldSuppressTriageComment(
-  context: IssueContext,
-  diagnosis: Diagnosis,
-) {
-  if (!isTrustedReporter(context)) {
-    return false;
-  }
-
-  return !(
-    diagnosis.followup_kind === "missing_info_request" ||
-    diagnosis.followup_kind === "technical_diagnosis"
-  );
+  return JSON.stringify({
+    title: context.issue.title,
+    body: context.issue.body,
+    state: context.issue.state,
+    labels,
+    comments: context.issue.comments,
+  });
 }
 
 async function readJsonCommand(
@@ -464,19 +382,20 @@ async function closeDuplicate(
   context: IssueContext,
   duplicate: v.InferOutput<typeof duplicateCandidateSchema>,
 ) {
-  const duplicateLabel = findDuplicateLabel(context);
-  const labelsApplied = duplicateLabel
-    ? await applyLabels(session, commandEnv, context, [duplicateLabel])
-    : [];
-  const comment = [
-    PIERRE_COMMENT_OPENER,
-    "",
-    `Thanks for the report. This looks like the same issue as #${duplicate.number}.`,
-    "",
-    `I'm closing this one so the conversation stays in one place. Please follow #${duplicate.number} for updates.`,
-  ].join("\n");
+  const outcome = resolveDuplicateOutcome(context, duplicate.number);
+  const labelsApplied = await applyLabels(
+    session,
+    commandEnv,
+    context,
+    outcome.labels,
+  );
 
-  await postComment(session, commandEnv, context, comment);
+  const commentPosted = await postComment(
+    session,
+    commandEnv,
+    context,
+    outcome.comment,
+  );
   await runGhCommand(
     session,
     commandEnv,
@@ -484,24 +403,7 @@ async function closeDuplicate(
     "Closing duplicate issue",
   );
 
-  return labelsApplied;
-}
-
-function buildUnsafeCloseComment() {
-  return [
-    PIERRE_COMMENT_OPENER,
-    "",
-    "I do not have enough confidence to close this automatically. A maintainer can make the call.",
-  ].join("\n");
-}
-
-/** Applies trusted-reporter suppression to a schema-validated follow-up. */
-function selectFollowupComment(diagnosis: Diagnosis, context: IssueContext) {
-  if (shouldSuppressTriageComment(context, diagnosis)) {
-    return undefined;
-  }
-
-  return diagnosis.followup_comment;
+  return { labelsApplied, commentPosted };
 }
 
 async function applyTriageUpdate(
@@ -522,20 +424,41 @@ async function applyTriageUpdate(
     };
   }
 
+  const outcome = resolveIssueTriageOutcome(context, diagnosis);
+
+  if (outcome.action === "none" && outcome.needs_human_review) {
+    return {
+      title_updated: false,
+      body_updated: false,
+      labels_applied: [],
+      comment_posted: false,
+      issue_closed: false,
+      needs_human_review: true,
+      summary:
+        "Skipped public mutations because the diagnosis requires human review, is security-sensitive, or is critical.",
+    };
+  }
+
   const labelsApplied = await applyLabels(
     session,
     commandEnv,
     context,
-    diagnosis.labels_to_apply,
+    outcome.labels,
   );
   let commentPosted = false;
 
-  if (shouldCloseAsSpam(diagnosis)) {
-    commentPosted = await closeSpamIssue(
+  if (outcome.action === "close") {
+    commentPosted = await postComment(
       session,
       commandEnv,
       context,
-      diagnosis,
+      outcome.comment,
+    );
+    await runGhCommand(
+      session,
+      commandEnv,
+      `gh issue close ${context.issueNumber}${repoArg(context.repository)} --reason ${shellQuote(outcome.close_reason ?? "not planned")}`,
+      "Closing triaged issue",
     );
 
     return {
@@ -544,41 +467,23 @@ async function applyTriageUpdate(
       labels_applied: labelsApplied,
       comment_posted: commentPosted,
       issue_closed: true,
-      closure_kind: "spam",
-      close_reason: "not planned",
+      closure_kind: outcome.closure_kind,
+      close_reason: outcome.close_reason,
       needs_human_review: false,
-      summary: "Closed issue as spam.",
+      summary:
+        outcome.closure_kind === "spam"
+          ? "Closed issue as spam."
+          : "Closed issue as invalid low-signal.",
     };
   }
 
-  if (shouldCloseAsInvalidLowSignal(context, diagnosis)) {
-    commentPosted = await closeInvalidIssue(
+  if (outcome.comment) {
+    commentPosted = await postComment(
       session,
       commandEnv,
       context,
-      diagnosis,
+      outcome.comment,
     );
-
-    return {
-      title_updated: false,
-      body_updated: false,
-      labels_applied: labelsApplied,
-      comment_posted: commentPosted,
-      issue_closed: true,
-      closure_kind: "invalid",
-      close_reason: "not planned",
-      needs_human_review: false,
-      summary: "Closed issue as invalid low-signal.",
-    };
-  }
-
-  const unsafeCloseRequest = diagnosis.should_close === true;
-
-  const comment = unsafeCloseRequest
-    ? buildUnsafeCloseComment()
-    : selectFollowupComment(diagnosis, context);
-  if (comment) {
-    commentPosted = await postComment(session, commandEnv, context, comment);
   }
 
   const changed = [
@@ -592,8 +497,8 @@ async function applyTriageUpdate(
     labels_applied: labelsApplied,
     comment_posted: commentPosted,
     issue_closed: false,
-    needs_human_review: diagnosis.needs_human_review || unsafeCloseRequest,
-    summary: unsafeCloseRequest
+    needs_human_review: outcome.needs_human_review,
+    summary: outcome.needs_human_review
       ? "Skipped unsafe close request and left the issue open for maintainer review."
       : changed.length > 0
         ? `Updated issue ${changed.join(", ")}.`
@@ -732,8 +637,12 @@ export async function run({
   env,
   log,
 }: FlueContext<unknown, Env>) {
-  const { issueNumber, repository } = v.parse(payloadSchema, payload);
-  logInfo(log, "[issue-triage] Run accepted", { issueNumber, repository });
+  const { issueNumber, repository, dryRun } = v.parse(payloadSchema, payload);
+  logInfo(log, "[issue-triage] Run accepted", {
+    issueNumber,
+    repository,
+    dryRun,
+  });
   const commandEnv = await resolveGithubCommandEnv(env, repository);
   const harness = await init(issueTriageAgent);
   const session = await harness.session(`issue-${issueNumber}`);
@@ -820,58 +729,68 @@ export async function run({
       );
     }
 
-    const closureContext = await readIssueContext(
-      session,
-      commandEnv,
-      issueNumber,
-      repository,
-    );
-    if (getIssueState(closureContext) === "closed") {
-      logInfo(log, "[issue-triage] Duplicate close skipped", {
+    if (dryRun) {
+      logInfo(log, "[issue-triage] Duplicate closure deferred for dry run", {
         issueNumber,
         repository,
         duplicateNumber: duplicateSearch.duplicate.number,
-        reason: "already_closed",
       });
+    } else {
+      const closureContext = await readIssueContext(
+        session,
+        commandEnv,
+        issueNumber,
+        repository,
+      );
+      if (getIssueState(closureContext) === "closed") {
+        logInfo(log, "[issue-triage] Duplicate close skipped", {
+          issueNumber,
+          repository,
+          duplicateNumber: duplicateSearch.duplicate.number,
+          reason: "already_closed",
+        });
+        return {
+          outcome: "needs_human_review",
+          steps: [
+            { name: "search-duplicates", result: duplicateSearch.status },
+            { name: "close-duplicate", result: "skipped: already closed" },
+          ],
+          duplicate: duplicateSearch.duplicate,
+          labels_applied: [],
+          comment_posted: false,
+          issue_closed: false,
+          needs_human_review: true,
+          summary: "Skipped duplicate closure because the issue is already closed.",
+        };
+      }
+
+      const { labelsApplied, commentPosted } = await closeDuplicate(
+        session,
+        commandEnv,
+        closureContext,
+        duplicateSearch.duplicate,
+      );
+      logInfo(log, "[issue-triage] Duplicate closed", {
+        issueNumber,
+        repository,
+        duplicateNumber: duplicateSearch.duplicate.number,
+        labelsApplied,
+      });
+
       return {
-        outcome: "needs_human_review",
+        outcome: "duplicate_closed",
         steps: [
           { name: "search-duplicates", result: duplicateSearch.status },
-          { name: "close-duplicate", result: "skipped: already closed" },
+          { name: "close-duplicate", result: "closed" },
         ],
         duplicate: duplicateSearch.duplicate,
-        labels_applied: [],
-        comment_posted: false,
-        issue_closed: false,
-        needs_human_review: true,
-        summary: "Skipped duplicate closure because the issue is already closed.",
+        labels_applied: labelsApplied,
+        comment_posted: commentPosted,
+        issue_closed: true,
+        needs_human_review: false,
+        summary: `Closed as a duplicate of #${duplicateSearch.duplicate.number}.`,
       };
     }
-
-    const labelsApplied = await closeDuplicate(
-      session,
-      commandEnv,
-      closureContext,
-      duplicateSearch.duplicate,
-    );
-    logInfo(log, "[issue-triage] Duplicate closed", {
-      issueNumber,
-      repository,
-      duplicateNumber: duplicateSearch.duplicate.number,
-      labelsApplied,
-    });
-
-    return {
-      outcome: "duplicate_closed",
-      steps: [
-        { name: "search-duplicates", result: duplicateSearch.status },
-        { name: "close-duplicate", result: "closed" },
-      ],
-      duplicate: duplicateSearch.duplicate,
-      labels_applied: labelsApplied,
-      comment_posted: true,
-      summary: `Closed as a duplicate of #${duplicateSearch.duplicate.number}.`,
-    };
   }
 
   const repositoryContext = await prepareRepository(
@@ -894,6 +813,7 @@ export async function run({
     repository,
   );
   let diagnosis: Diagnosis;
+  let diagnosisValidationError: string | undefined;
   try {
     const response = await session.skill("issue-triage", {
       args: {
@@ -908,6 +828,17 @@ export async function run({
       signal: AbortSignal.timeout(900_000),
     });
     diagnosis = response.data;
+    try {
+      assertDiagnosisAnalysis(diagnosis);
+    } catch (error) {
+      diagnosisValidationError =
+        error instanceof Error ? error.message : String(error);
+      log.warn("[issue-triage] Diagnosis failed semantic validation", {
+        issueNumber,
+        repository,
+        error: diagnosisValidationError,
+      });
+    }
     logInfo(log, "[issue-triage] Diagnosis completed", {
       issueNumber,
       repository,
@@ -915,7 +846,9 @@ export async function run({
       category: diagnosis.category,
       disposition: diagnosis.disposition,
       validity: diagnosis.validity,
-      needsHumanReview: diagnosis.needs_human_review,
+      needsHumanReview:
+        diagnosis.needs_human_review || diagnosisValidationError !== undefined,
+      validationError: diagnosisValidationError,
       shouldClose: diagnosis.should_close ?? false,
     });
   } catch (error) {
@@ -933,6 +866,141 @@ export async function run({
     issueNumber,
     repository,
   );
+  const issueChanged =
+    issueSnapshot(diagnosisContext) !== issueSnapshot(updateContext);
+  const proposedOutcome = resolveIssueTriageOutcome(updateContext, diagnosis);
+  if (!dryRun && issueChanged) {
+    return {
+      outcome: "needs_human_review",
+      steps: [
+        { name: "search-duplicates", result: duplicateSearch.status },
+        {
+          name: "prepare-repository",
+          result: repositoryContext.checkoutAvailable ? "ready" : "unavailable",
+        },
+        { name: "diagnose-and-validate", result: diagnosis.validity },
+        { name: "apply-triage-update", result: "skipped: issue changed" },
+      ],
+      severity: diagnosis.severity,
+      category: diagnosis.category,
+      disposition: diagnosis.disposition,
+      validity: diagnosis.validity,
+      labels_proposed: proposedOutcome.labels,
+      labels_applied: [],
+      comment_posted: false,
+      title_updated: false,
+      body_updated: false,
+      issue_closed: false,
+      needs_human_review: true,
+      summary: diagnosis.summary,
+      update_summary:
+        "Skipped triage mutations because the issue changed during analysis.",
+      evidence: diagnosis.evidence,
+      validation_error: diagnosisValidationError,
+      issue_changed: true,
+      bug_analysis: diagnosis.bug_analysis,
+      gap_analysis: diagnosis.gap_analysis,
+    };
+  }
+
+  if (dryRun) {
+    const duplicateOutcome =
+      duplicateSearch.status === "duplicate" && duplicateSearch.duplicate
+        ? resolveDuplicateOutcome(updateContext, duplicateSearch.duplicate.number)
+        : undefined;
+    const resolvedOutcome: IssueTriageOutcome =
+      issueChanged
+        ? {
+            action: "none" as const,
+            labels: [],
+            needs_human_review: true,
+          }
+        : duplicateOutcome ??
+          (diagnosisValidationError
+            ? {
+                action: "none" as const,
+                labels: [],
+                needs_human_review: true,
+              }
+            : proposedOutcome);
+
+    return {
+      outcome: "dry_run",
+      steps: [
+        { name: "search-duplicates", result: duplicateSearch.status },
+        {
+          name: "prepare-repository",
+          result: repositoryContext.checkoutAvailable ? "ready" : "unavailable",
+        },
+        { name: "diagnose-and-validate", result: diagnosis.validity },
+        {
+          name: duplicateOutcome ? "close-duplicate" : "apply-triage-update",
+          result: "skipped: dry run",
+        },
+      ],
+      severity: diagnosis.severity,
+      category: diagnosis.category,
+      disposition: diagnosis.disposition,
+      validity: diagnosis.validity,
+      duplicate: duplicateSearch.duplicate,
+      labels_proposed: resolvedOutcome.labels,
+      comment_proposed: resolvedOutcome.comment,
+      should_close: resolvedOutcome.action === "close",
+      close_reason: resolvedOutcome.close_reason,
+      labels_applied: [],
+      comment_posted: false,
+      title_updated: false,
+      body_updated: false,
+      issue_closed: false,
+      needs_human_review: resolvedOutcome.needs_human_review,
+      summary: diagnosis.summary,
+      update_summary: issueChanged
+        ? "Skipped all GitHub mutations because this was a dry run; the issue changed during analysis, so the proposed diagnosis requires human review."
+        : duplicateOutcome
+            ? `Skipped closing this issue as a duplicate of #${duplicateSearch.duplicate?.number} because this was a dry run.`
+          : diagnosisValidationError
+            ? "Skipped all GitHub mutations because this was a dry run; the proposed diagnosis also requires human review after failing semantic validation."
+            : "Skipped all GitHub mutations because this was a dry run.",
+      evidence: diagnosis.evidence,
+      validation_error: diagnosisValidationError,
+      issue_changed: issueChanged,
+      bug_analysis: diagnosis.bug_analysis,
+      gap_analysis: diagnosis.gap_analysis,
+    };
+  }
+
+  if (diagnosisValidationError) {
+    return {
+      outcome: "needs_human_review",
+      steps: [
+        { name: "search-duplicates", result: duplicateSearch.status },
+        {
+          name: "prepare-repository",
+          result: repositoryContext.checkoutAvailable ? "ready" : "unavailable",
+        },
+        { name: "diagnose-and-validate", result: "failed semantic validation" },
+        { name: "apply-triage-update", result: "skipped: invalid diagnosis" },
+      ],
+      severity: diagnosis.severity,
+      category: diagnosis.category,
+      disposition: diagnosis.disposition,
+      validity: diagnosis.validity,
+      labels_applied: [],
+      comment_posted: false,
+      title_updated: false,
+      body_updated: false,
+      issue_closed: false,
+      needs_human_review: true,
+      summary: diagnosis.summary,
+      update_summary:
+        "Skipped triage mutations because the proposed diagnosis failed semantic validation.",
+      evidence: diagnosis.evidence,
+      validation_error: diagnosisValidationError,
+      bug_analysis: diagnosis.bug_analysis,
+      gap_analysis: diagnosis.gap_analysis,
+    };
+  }
+
   const update = await applyTriageUpdate(
     session,
     commandEnv,
@@ -981,6 +1049,10 @@ export async function run({
     closure_kind: update.closure_kind,
     close_reason: update.close_reason,
     needs_human_review: update.needs_human_review,
-    summary: update.summary,
+    summary: diagnosis.summary,
+    update_summary: update.summary,
+    evidence: diagnosis.evidence,
+    bug_analysis: diagnosis.bug_analysis,
+    gap_analysis: diagnosis.gap_analysis,
   };
 }
