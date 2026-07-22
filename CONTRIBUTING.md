@@ -42,7 +42,7 @@ For `issue-triage`, grant these repository permissions:
 
 - Metadata: read
 - Contents: read, for repository clone and inspection
-- Issues: read and write, for issue context, labels, comments, edits, and closure
+- Issues: read and write, for issue context, comments, and closure
 
 Configure the GitHub App webhook:
 
@@ -116,7 +116,6 @@ validation, and all expectation fields are optional:
     "issueNumber": 123,
     "capturedAt": "2026-07-17T00:00:00Z"
   },
-  "repositoryLabels": ["bug"],
   "issue": {
     "author": "reporter",
     "authorAssociation": "NONE",
@@ -131,7 +130,6 @@ validation, and all expectation fields are optional:
   },
   "expectedOutcome": {
     "action": "comment",
-    "labels_include": ["bug"],
     "comment_includes": ["exact error"],
     "comment_excludes": ["maintainer can take it"],
     "max_comment_words": 80,
@@ -140,16 +138,14 @@ validation, and all expectation fields are optional:
 }
 ```
 
-`repositoryLabels` are the labels available for the agent to apply. `labels`
-are labels already present on the issue. Keep both input fields independent from
-the assertions under `expectedOutcome`. `diagnosis` means the agent's internal
-evidence and reasoning. `outcome` means the exact normalized GitHub action,
-labels, comment, closure, and review state. Labels are orthogonal to the primary
-action. `expectedOutcome` contains the deterministic assertions; omitted fields
-are not scored.
+`labels` are labels already present on the issue and are read-only context.
+`diagnosis` means the agent's internal evidence and reasoning. `outcome` means
+the exact normalized GitHub action, comment, closure, and review state.
+`expectedOutcome` contains the deterministic assertions; omitted fields are not
+scored.
 
-Use `action: "none"`, `"label"`, `"comment"`, or `"close"` for
-the primary GitHub-visible result. Add `duplicateCandidates` only for a
+Use `action: "none"`, `"comment"`, or `"close"` for the primary GitHub-visible
+result. Add `duplicateCandidates` only for a
 duplicate-search case; each candidate contains its issue number, title, URL,
 state, confidence, and search reason.
 

@@ -6,7 +6,6 @@
     "issueNumber": 1200,
     "capturedAt": "2026-07-20T18:00:00Z"
   },
-  "repositoryLabels": ["bug"],
   "issue": {
     "title": "get_sentry_issue fails for self-hosted Sentry",
     "author": "first-report",
@@ -28,7 +27,6 @@
   },
   "expectedOutcome": {
     "action": "comment",
-    "labels_include": ["bug"],
     "comment_includes": ["Sentry version", "HTTP"],
     "comment_excludes": ["maintainer can take it", "leaving this open"],
     "max_comment_words": 80,

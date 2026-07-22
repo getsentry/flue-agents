@@ -35,8 +35,5 @@
     "root_cause_includes": ["system actor", "currentUser", "credentialSubject"],
     "min_causal_chain_steps": 3,
     "min_structured_evidence": 2
-  },
-  "repositoryLabels": [
-    "bug"
-  ]
+  }
 }

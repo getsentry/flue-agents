@@ -90,7 +90,6 @@ export const issueTriageDiagnosisSchema = v.pipe(
       evidence: v.array(v.string()),
       bug_analysis: v.optional(bugAnalysisSchema),
       gap_analysis: v.optional(gapAnalysisSchema),
-      labels_to_apply: v.array(v.string()),
       followup_kind: v.optional(followupKindSchema),
       followup_rationale: v.optional(v.pipe(v.string(), v.trim())),
       followup_comment: v.optional(v.pipe(v.string(), v.trim())),

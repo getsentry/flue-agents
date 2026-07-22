@@ -45,6 +45,10 @@ const analysisExpectationSchema = v.variant("kind", [
     min_structured_evidence: v.optional(
       v.pipe(v.number(), v.integer(), v.minValue(1)),
     ),
+    max_affected_locations: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(0)),
+    ),
+    root_cause: v.optional(v.boolean()),
     confidence: v.optional(v.picklist(["low", "medium", "high"])),
   }),
   v.object({
@@ -83,7 +87,6 @@ export const issueTriageEvalFixtureSchema = v.pipe(
       issueNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
       capturedAt: v.string(),
     }),
-    repositoryLabels: v.array(v.string()),
     issue: v.strictObject({
       author: v.string(),
       authorAssociation: authorAssociationSchema,
@@ -96,9 +99,8 @@ export const issueTriageEvalFixtureSchema = v.pipe(
     expectedAnalysis: v.optional(analysisExpectationSchema),
     expectedOutcome: v.strictObject({
       action: v.optional(
-        v.picklist(["none", "label", "comment", "close"]),
+        v.picklist(["none", "comment", "close"]),
       ),
-      labels_include: v.optional(v.array(v.string())),
       comment_includes: v.optional(v.array(v.string())),
       comment_excludes: v.optional(v.array(v.string())),
       max_comment_words: v.optional(
@@ -108,15 +110,6 @@ export const issueTriageEvalFixtureSchema = v.pipe(
       needs_human_review: v.optional(v.boolean()),
     }),
   }),
-  v.check((fixture) => {
-    const available = new Set(
-      fixture.repositoryLabels.map((label) => label.toLowerCase()),
-    );
-    return [
-      ...fixture.issue.labels,
-      ...(fixture.expectedOutcome.labels_include ?? []),
-    ].every((label) => available.has(label.toLowerCase()));
-  }, "Issue and expected labels must exist in repositoryLabels."),
 );
 export type IssueTriageEvalFixture = v.InferOutput<
   typeof issueTriageEvalFixtureSchema
@@ -184,6 +177,20 @@ function evaluateAnalysisExpectation(
         `bug_analysis.evidence: expected at least ${expected.min_structured_evidence} items, got ${analysis.evidence.length}`,
       );
     }
+    if (
+      expected.max_affected_locations !== undefined &&
+      analysis.affected_locations.length > expected.max_affected_locations
+    ) {
+      failures.push(
+        `bug_analysis.affected_locations: expected at most ${expected.max_affected_locations} items, got ${analysis.affected_locations.length}`,
+      );
+    }
+    addExactExpectation(
+      failures,
+      "bug_analysis.root_cause",
+      Boolean(analysis.root_cause?.trim()),
+      expected.root_cause,
+    );
     addExactExpectation(
       failures,
       "bug_analysis.confidence",
@@ -231,8 +238,6 @@ export function evaluateIssueTriageOutcome(
 ) {
   const expected = fixture.expectedOutcome;
   const failures: string[] = [];
-  const labels = expected.labels_include ?? [];
-
   addExactExpectation(failures, "action", outcome.action, expected.action);
   addExactExpectation(
     failures,
@@ -246,16 +251,6 @@ export function evaluateIssueTriageOutcome(
     outcome.needs_human_review,
     expected.needs_human_review,
   );
-
-  for (const label of labels) {
-    if (
-      !outcome.labels.some(
-        (candidate) => candidate.toLowerCase() === label.toLowerCase(),
-      )
-    ) {
-      failures.push(`labels: expected to include ${label}`);
-    }
-  }
 
   const missingCommentTerms = includesTerms(
     outcome.comment ?? "",
@@ -317,7 +312,6 @@ function buildIssueContext(fixture: IssueTriageEvalFixture) {
       createdAt: fixture.source.capturedAt,
       updatedAt: fixture.source.capturedAt,
     },
-    labels: fixture.repositoryLabels.map((name) => ({ name })),
     fetchedAt: fixture.source.capturedAt,
   };
 }
@@ -397,7 +391,6 @@ export async function runIssueTriageEval(
     // Match production: semantic validation failures never reach GitHub.
     outcome = {
       action: "none",
-      labels: [],
       needs_human_review: true,
     };
   }

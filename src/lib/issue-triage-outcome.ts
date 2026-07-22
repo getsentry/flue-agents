@@ -13,13 +13,11 @@ import {
   buildSpamCloseComment,
   type IssueContext,
   normalizePierreComment,
-  resolveLabelsToApply,
 } from "./issue-triage-github.ts";
 import { PIERRE_COMMENT_OPENER } from "./pierre.ts";
 
 export const issueTriageOutcomeSchema = v.strictObject({
-  action: v.picklist(["none", "label", "comment", "close"]),
-  labels: v.array(v.string()),
+  action: v.picklist(["none", "comment", "close"]),
   comment: v.optional(v.string()),
   close_reason: v.optional(v.picklist(["not planned", "duplicate"])),
   closure_kind: v.optional(v.picklist(["spam", "invalid", "duplicate"])),
@@ -42,7 +40,6 @@ export function resolveDuplicateOutcome(
 
   return {
     action: "close",
-    labels: resolveLabelsToApply(context, ["duplicate"]),
     comment: normalizePierreComment(comment, context),
     close_reason: "duplicate",
     closure_kind: "duplicate",
@@ -122,17 +119,13 @@ export function resolveIssueTriageOutcome(
   ) {
     return {
       action: "none",
-      labels: [],
       needs_human_review: true,
     };
   }
 
-  const labels = resolveLabelsToApply(context, diagnosis.labels_to_apply);
-
   if (shouldCloseAsSpam(diagnosis)) {
     return {
       action: "close",
-      labels,
       comment: normalizePierreComment(buildSpamCloseComment(context), context),
       close_reason: "not planned",
       closure_kind: "spam",
@@ -140,10 +133,9 @@ export function resolveIssueTriageOutcome(
     };
   }
 
-  if (shouldCloseAsInvalidLowSignal(context, diagnosis)) {
+  if (shouldCloseAsInvalidLowSignal(diagnosis)) {
     return {
       action: "close",
-      labels,
       comment: normalizePierreComment(
         buildInvalidCloseComment(context),
         context,
@@ -161,12 +153,10 @@ export function resolveIssueTriageOutcome(
   const comment = rawComment
     ? normalizePierreComment(rawComment, context)
     : undefined;
-  const action =
-    comment ? "comment" : labels.length > 0 ? "label" : "none";
+  const action = comment ? "comment" : "none";
 
   return {
     action,
-    labels,
     ...(comment ? { comment } : {}),
     needs_human_review: unsafeCloseRequest,
   };
