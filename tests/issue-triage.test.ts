@@ -38,6 +38,7 @@ const baseDiagnosis = {
   summary: "Clear request.",
   evidence: [],
   labels_to_apply: [],
+  should_close: false,
   needs_human_review: false,
 } as const;
 
@@ -1011,14 +1012,22 @@ async function runMemberCommentSuppressionFixture(
     },
   } as any);
 
-  const expectedNeedsHumanReview = fixture.expectedNeedsHumanReview ?? false;
-  assert.equal(
-    result.outcome,
-    expectedNeedsHumanReview ? "needs_human_review" : "triaged",
-  );
-  assert.equal(result.comment_posted, fixture.expectedCommentPosted);
-  if (fixture.expectedValidationError) {
-    assert.match(result.validation_error, fixture.expectedValidationError);
+  const expectedNeedsHumanReview =
+    fixture.expectedTriage.needs_human_review ??
+    fixture.expectedNeedsHumanReview ??
+    (fixture.expectedTriage.issue_changed === true ||
+      fixture.expectedTriage.outcome === "needs_human_review");
+  const expectedOutcome =
+    fixture.expectedTriage.outcome ??
+    (expectedNeedsHumanReview ? "needs_human_review" : "triaged");
+  const expectedCommentPosted =
+    fixture.expectedTriage.comment_posted ?? fixture.expectedCommentPosted;
+  const expectedValidationError =
+    fixture.expectedTriage.validation_error ?? fixture.expectedValidationError;
+  assert.equal(result.outcome, expectedOutcome);
+  assert.equal(result.comment_posted, expectedCommentPosted);
+  if (expectedValidationError) {
+    assert.match(result.validation_error, expectedValidationError);
   }
   if (fixture.expectedTriage.duplicate) {
     assert.deepEqual(result.duplicate, fixture.expectedTriage.duplicate);
@@ -1047,14 +1056,14 @@ async function runMemberCommentSuppressionFixture(
     "append-only triage must never edit reporter-authored title or body",
   );
   assert.ok(
-    fixture.expectedCommentPosted
+    expectedCommentPosted
       ? shellCalls.some(({ command }) => command.startsWith("gh issue comment"))
       : shellCalls.every(
           ({ command }) => !command.startsWith("gh issue comment"),
         ),
   );
-  assert.equal(files.size > 0, fixture.expectedCommentPosted);
-  if (fixture.expectedCommentPosted) {
+  assert.equal(files.size > 0, expectedCommentPosted);
+  if (expectedCommentPosted) {
     const [commentPath, commentBody] = Array.from(files.entries())[0];
     assert.equal(commentBody, fixture.modelComment);
     assert.ok(
@@ -1124,32 +1133,26 @@ test("reports resolved trusted-reporter actions during dry runs", async (t) => {
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
   assert.deepEqual(result.labels_proposed, []);
-  assert.equal(result.should_comment, false);
-  assert.equal(result.should_update_issue, false);
+  assert.equal(result.comment_proposed, undefined);
   assert.equal(result.should_close, false);
   assert.equal(result.needs_human_review, false);
 });
 
-test("returns resolved issue update text during dry runs", async (t) => {
+test("returns resolved follow-up text during dry runs", async (t) => {
   const fixture = await readMemberActionableFixture();
   fixture.dryRun = true;
   fixture.modelDiagnosis = {
-    should_comment: true,
-    should_update_issue: true,
-    proposed_title: "Expose the missing integration surface",
-    proposed_body: "## Summary\n\nAdd the missing API wrapper.",
-    triage_comment: "I clarified the issue so the implementation is ready to pick up.",
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds a concrete repository finding.",
+    followup_comment:
+      "I found the missing integration surface. Please add the API wrapper before wiring the tool.",
   };
   fixture.expectedTriage.outcome = "dry_run";
   fixture.expectedTriage.comment_posted = false;
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
-  assert.equal(result.title_proposed, "Expose the missing integration surface");
-  assert.equal(result.body_proposed, "## Summary\n\nAdd the missing API wrapper.");
-  assert.match(result.comment_proposed, /clarified the issue/);
+  assert.match(result.comment_proposed, /missing integration surface/);
   assert.equal(result.close_reason, undefined);
-  assert.equal(result.should_comment, true);
-  assert.equal(result.should_update_issue, true);
   assert.equal(result.should_close, false);
 });
 
@@ -1158,19 +1161,18 @@ test("reports no proposed mutations for human-review dry runs", async (t) => {
   fixture.dryRun = true;
   fixture.modelDiagnosis = {
     labels_to_apply: ["enhancement"],
-    should_comment: true,
-    should_update_issue: true,
-    proposed_title: "Potentially sensitive report",
-    proposed_body: "Details that should not be published automatically.",
+    followup_kind: "technical_diagnosis",
+    followup_rationale: "Adds a potentially sensitive finding.",
+    followup_comment: "Potentially sensitive details that should not be posted.",
     needs_human_review: true,
   };
   fixture.expectedTriage.outcome = "dry_run";
   fixture.expectedTriage.comment_posted = false;
+  fixture.expectedTriage.needs_human_review = true;
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
   assert.deepEqual(result.labels_proposed, []);
-  assert.equal(result.should_comment, false);
-  assert.equal(result.should_update_issue, false);
+  assert.equal(result.comment_proposed, undefined);
   assert.equal(result.should_close, false);
   assert.equal(result.needs_human_review, true);
 });
@@ -1198,12 +1200,8 @@ test("runs full diagnosis for duplicate dry runs without mutating issues", async
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
   assert.deepEqual(result.labels_proposed, []);
-  assert.equal(result.title_proposed, undefined);
-  assert.equal(result.body_proposed, undefined);
   assert.match(result.comment_proposed, /same issue as #456/);
   assert.equal(result.close_reason, "duplicate");
-  assert.equal(result.should_comment, true);
-  assert.equal(result.should_update_issue, false);
   assert.equal(result.should_close, true);
   assert.ok(
     result.steps.some(
@@ -1239,8 +1237,7 @@ test("reports no proposed duplicate closure when the issue changes during a dry 
 
   const result = await runMemberCommentSuppressionFixture(t, fixture);
   assert.deepEqual(result.labels_proposed, []);
-  assert.equal(result.should_comment, false);
-  assert.equal(result.should_update_issue, false);
+  assert.equal(result.comment_proposed, undefined);
   assert.equal(result.should_close, false);
   assert.equal(result.needs_human_review, true);
   assert.match(result.update_summary, /issue changed during analysis/);
