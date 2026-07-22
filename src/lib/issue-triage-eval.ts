@@ -21,7 +21,7 @@ const duplicateCandidateSchema = v.strictObject({
   confidence: v.picklist(["low", "medium", "high"]),
   reason: v.string(),
 });
-const duplicateSearchSchema = v.object({
+export const issueTriageEvalDuplicateSearchSchema = v.object({
   status: v.picklist(["duplicate", "unique", "uncertain"]),
   duplicate: v.optional(duplicateCandidateSchema),
   candidates: v.array(duplicateCandidateSchema),
@@ -336,7 +336,9 @@ export async function runIssueTriageEval(
     `eval-${fixture.source.repository.replace(/[^A-Za-z0-9_.-]+/g, "-")}-${fixture.source.issueNumber}`,
   );
   const context = buildIssueContext(fixture);
-  let duplicateSearch: v.InferOutput<typeof duplicateSearchSchema> = {
+  let duplicateSearch: v.InferOutput<
+    typeof issueTriageEvalDuplicateSearchSchema
+  > = {
     status: "unique",
     candidates: [],
     rationale: "Eval fixture does not provide duplicate candidates.",
@@ -350,7 +352,7 @@ export async function runIssueTriageEval(
         context,
         duplicateCandidates: fixture.duplicateCandidates,
       },
-      result: duplicateSearchSchema,
+      result: issueTriageEvalDuplicateSearchSchema,
       signal,
     });
     duplicateSearch = duplicateResponse.data;
@@ -358,6 +360,7 @@ export async function runIssueTriageEval(
       return {
         scenario: `${fixture.source.repository}#${fixture.source.issueNumber}`,
         description: fixture.description,
+        duplicateSearch,
         outcome: resolveDuplicateOutcome(
           context,
           duplicateSearch.duplicate.number,
@@ -391,6 +394,7 @@ export async function runIssueTriageEval(
   return {
     scenario: `${fixture.source.repository}#${fixture.source.issueNumber}`,
     description: fixture.description,
+    duplicateSearch,
     diagnosis,
     outcome,
   };

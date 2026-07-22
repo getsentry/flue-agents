@@ -19,6 +19,7 @@ import * as v from "valibot";
 import {
   evaluateIssueTriageOutcome,
   issueTriageEvalDiagnosisSchema,
+  issueTriageEvalDuplicateSearchSchema,
   issueTriageEvalOutcomeSchema,
   parseIssueTriageEvalFixture,
   type IssueTriageEvalFixture,
@@ -41,6 +42,7 @@ const model =
 const evalOutputSchema = v.strictObject({
   scenario: v.string(),
   description: v.string(),
+  duplicateSearch: issueTriageEvalDuplicateSearchSchema,
   diagnosis: v.optional(issueTriageEvalDiagnosisSchema),
   outcome: issueTriageEvalOutcomeSchema,
 });
@@ -96,6 +98,7 @@ const issueTriageRubricJudge = createJudge<
             source: input.source,
             repositoryLabels: input.repositoryLabels,
             issue: input.issue,
+            duplicateCandidates: input.duplicateCandidates,
             expectedOutcome: input.expectedOutcome,
           },
           null,
@@ -104,6 +107,9 @@ const issueTriageRubricJudge = createJudge<
         "",
         "## GitHub-visible outcome",
         JSON.stringify(output.outcome, null, 2),
+        "",
+        "## Duplicate search result",
+        JSON.stringify(output.duplicateSearch, null, 2),
         "",
         "## Internal diagnosis",
         JSON.stringify(output.diagnosis ?? null, null, 2),
